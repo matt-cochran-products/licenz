@@ -1,0 +1,45 @@
+{
+    "name": "Licenz Rust Development",
+    "image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+
+    "features": {
+        "ghcr.io/devcontainers/features/rust:1": {
+            "version": "nightly",
+            "profile": "default"
+        }
+    },
+
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "rust-analyzer.cargo.features": "all",
+                "rust-analyzer.check.command": "clippy",
+                "rust-analyzer.rustfmt.extraArgs": ["+nightly"],
+                "[rust]": {
+                    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+                    "editor.formatOnSave": true
+                }
+            },
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "tamasfe.even-better-toml",
+                "serayuzgur.crates",
+                "vadimcn.vscode-lldb",
+                "fill-labs.dependi"
+            ]
+        }
+    },
+
+    "postCreateCommand": "rustup default nightly && rustup component add rustfmt clippy rust-src && cargo fetch",
+
+    "remoteUser": "vscode",
+
+    "mounts": [
+        "source=${localWorkspaceFolderBasename}-cargo-cache,target=/usr/local/cargo/registry,type=volume"
+    ],
+
+    "containerEnv": {
+        "CARGO_HOME": "/usr/local/cargo",
+        "RUSTUP_HOME": "/usr/local/rustup"
+    }
+}

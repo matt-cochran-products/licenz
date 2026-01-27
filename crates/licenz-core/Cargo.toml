@@ -1,0 +1,41 @@
+[package]
+name = "licenz-core"
+version.workspace = true
+edition = "2021"
+license.workspace = true
+description = "Core license generation and verification library"
+readme = "README.md"
+
+[features]
+default = ["hardware-binding"]
+hardware-binding = ["dep:sysinfo", "dep:mac_address", "dep:hostname"]
+cloud-metadata = []
+# For client apps that only need verification (smaller binary)
+verify-only = []
+# For server/admin apps that need generation capabilities  
+generate = []
+
+[dependencies]
+rsa.workspace = true
+sha2.workspace = true
+rand.workspace = true
+base64.workspace = true
+pem.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bincode.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+hex.workspace = true
+tracing = { workspace = true }
+dirs-next = "2"
+aes-gcm = "0.10"
+
+# Optional hardware detection
+sysinfo = { workspace = true, optional = true }
+mac_address = { workspace = true, optional = true }
+hostname = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/licenz-core",
+    "crates/licenz-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/licenz-dev/licenz"
+homepage = "https://licenz.dev"
+description = "Offline-first software license management for Rust"
+keywords = ["license", "licensing", "offline", "cryptography", "saas"]
+categories = ["authentication", "cryptography"]
+
+[workspace.dependencies]
+# Cryptography
+rsa = "0.9"
+sha2 = "0.10"
+rand = "0.8"
+base64 = "0.21"
+pem = "3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Hardware detection
+sysinfo = "0.30"
+mac_address = "1"
+hostname = "0.3"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Utilities
+thiserror = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+hex = "0.4"
