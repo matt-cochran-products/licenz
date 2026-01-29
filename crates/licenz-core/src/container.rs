@@ -6,7 +6,6 @@
 use crate::error::{LicenseError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::time::Duration;
 
 /// Detected runtime environment
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -202,6 +201,7 @@ fn get_docker_container_id() -> Option<String> {
 }
 
 /// Helper function for HTTP GET with a custom header
+#[allow(unused_variables)]
 fn ureq_get_with_header(url: &str, header_name: &str, header_value: &str) -> Result<String> {
     // Use a simple blocking HTTP client
     // In production, you'd want proper async with timeouts

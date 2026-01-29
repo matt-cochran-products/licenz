@@ -22,7 +22,12 @@
       "Bash(docker exec:*)",
       "Bash(DATABASE_URL=\"postgresql://licenz:licenz-dev-password@localhost:5432/licenz\" cargo check:*)",
       "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" cargo check:*)",
-      "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" cargo build:*)"
+      "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" cargo build:*)",
+      "Bash(curl:*)",
+      "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" JWT_SECRET=\"dev-secret-key-for-testing\" HOST=\"0.0.0.0\" PORT=\"3001\" timeout 15 cargo run:*)",
+      "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" JWT_SECRET=\"dev-secret-key-for-testing\" HOST=\"0.0.0.0\" PORT=\"3001\" GRAXON_DIR=\"../graxon\" timeout 15 cargo run:*)",
+      "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" cargo sqlx:*)",
+      "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" cargo fix:*)"
     ]
   }
 }

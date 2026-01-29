@@ -13,6 +13,7 @@ pub struct StateManager {
     /// Primary storage paths (filesystem)
     paths: Vec<PathBuf>,
     /// License ID hash for file naming
+    #[allow(dead_code)]
     license_hash: String,
 }
 

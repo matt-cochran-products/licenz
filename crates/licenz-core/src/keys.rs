@@ -1,9 +1,9 @@
 //! RSA key management for license signing and verification
 
 use crate::error::{LicenseError, Result};
-use pem::{encode, parse, Pem};
+use pem::{encode, Pem};
 use rand::rngs::OsRng;
-use rsa::pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey, EncodeRsaPrivateKey, EncodeRsaPublicKey};
+use rsa::pkcs1::{DecodeRsaPrivateKey, DecodeRsaPublicKey};
 use rsa::pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey};
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use std::path::Path;
