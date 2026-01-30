@@ -114,10 +114,3 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish -p licenz-core --allow-dirty
-
-      - name: Publish licenz-cli
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          sleep 30  # Wait for crates.io to index licenz-core
-          cargo publish -p licenz-cli --allow-dirty

@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "crates/licenz-core",
-    "crates/licenz-cli",
+    # Note: licenz-cli lives in the licenz-saas repo (it depends on that codebase)
 ]
 
 [workspace.package]
