@@ -2,7 +2,7 @@
 //!
 //! A command-line tool for license generation, verification, and key management.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use colored::Colorize;
 use std::path::PathBuf;
@@ -12,6 +12,9 @@ mod interactive;
 mod output;
 
 use commands::{generate, info, keygen, verify};
+
+#[cfg(feature = "server")]
+use commands::server;
 
 /// Licenz - Powerful offline software license management
 #[derive(Parser)]
@@ -143,6 +146,11 @@ enum Commands {
 
     /// Show version information
     Version,
+
+    /// Server commands (requires login to Licenz SaaS)
+    #[cfg(feature = "server")]
+    #[command(subcommand)]
+    Server(server::ServerCommands),
 }
 
 fn main() -> Result<()> {
@@ -222,6 +230,11 @@ fn main() -> Result<()> {
                 licenz_core::VERSION
             );
             println!("A powerful offline software license management system");
+        }
+
+        #[cfg(feature = "server")]
+        Commands::Server(cmd) => {
+            server::run(cmd)?;
         }
     }
 

@@ -12,8 +12,10 @@ hardware-binding = ["dep:sysinfo", "dep:mac_address", "dep:hostname"]
 cloud-metadata = []
 # For client apps that only need verification (smaller binary)
 verify-only = []
-# For server/admin apps that need generation capabilities  
+# For server/admin apps that need generation capabilities
 generate = []
+# For online license validation (revocation check, sync)
+online-check = ["dep:reqwest"]
 
 [dependencies]
 rsa.workspace = true
@@ -36,6 +38,9 @@ aes-gcm = "0.10"
 sysinfo = { workspace = true, optional = true }
 mac_address = { workspace = true, optional = true }
 hostname = { workspace = true, optional = true }
+
+# Optional online validation
+reqwest = { version = "0.12", features = ["json", "blocking"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"

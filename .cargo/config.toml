@@ -1,0 +1,5 @@
+# Path overrides for local development
+# This allows using local versions of dependencies during development
+
+[patch."ssh://git@github.com/outboundlabs/licenz-saas"]
+licenz-api-client = { path = "../licenz-saas/crates/licenz-api-client" }

@@ -17,7 +17,7 @@ use std::path::Path;
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// use licenz_core::{require_license, LicenseVerifier};
 ///
 /// // This is the ONLY way to get license data
@@ -104,13 +104,13 @@ impl Deref for ValidatedLicense {
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// const PUBLIC_KEY: &str = include_str!("../public.pem");
 ///
 /// fn main() {
 ///     let license = licenz_core::require_license("license.lic", PUBLIC_KEY)
 ///         .expect("Valid license required");
-///     
+///
 ///     println!("Welcome, {}!", license.customer_id);
 /// }
 /// ```

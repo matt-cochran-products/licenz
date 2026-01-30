@@ -1,5 +1,7 @@
 //! Output formatting utilities
 
+#![allow(dead_code)]
+
 use colored::Colorize;
 
 /// Print a success message

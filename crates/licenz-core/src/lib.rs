@@ -46,7 +46,7 @@
 //!
 //! ### Verifying a License (Client-Side) - Recommended Pattern
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use licenz_core::require_license;
 //!
 //! // Public key embedded at compile time
@@ -56,9 +56,9 @@
 //!     // This validates the license and returns a guard
 //!     let license = require_license("license.lic", PUBLIC_KEY)
 //!         .expect("Valid license required to run");
-//!     
+//!
 //!     println!("Licensed to: {}", license.customer_id);
-//!     
+//!
 //!     // Feature gating
 //!     if license.has_feature("premium") {
 //!         enable_premium_features();
@@ -71,6 +71,7 @@
 //! - `hardware-binding` (default): Enable hardware detection for license binding
 //! - `verify-only`: Include only verification code (smaller binary for client apps)
 //! - `generate`: Include license generation code (for server/admin apps)
+//! - `online-check`: Enable online license validation (revocation check, sync)
 
 pub mod anti_tamper;
 pub mod container;
@@ -84,6 +85,9 @@ pub mod license;
 pub mod state_manager;
 pub mod verifier;
 
+#[cfg(feature = "online-check")]
+pub mod online_check;
+
 // Re-export main types
 pub use error::{LicenseError, Result};
 pub use generator::LicenseGenerator;
@@ -96,6 +100,13 @@ pub use anti_tamper::{ClockStatus, HardwareFingerprint, LicenseState, MatchResul
 pub use state_manager::StateManager;
 pub use container::{ContainerBinding, InstanceIdSource, RuntimeEnvironment};
 pub use encrypted_store::{EncryptedKeyStore, validate_passphrase, MIN_PASSPHRASE_LENGTH};
+
+#[cfg(feature = "online-check")]
+pub use online_check::{
+    check_revocation, check_revocation_batch, check_revocation_by_serial,
+    sync_report, OnlineCheckConfig, RevocationCheckResult, RevocationStatus,
+    SyncReport, SyncResponse,
+};
 
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

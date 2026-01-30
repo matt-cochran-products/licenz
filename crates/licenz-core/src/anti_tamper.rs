@@ -314,7 +314,7 @@ mod tests {
     
     #[test]
     fn test_clock_status_ok() {
-        let mut state = LicenseState::new("test-license");
+        let state = LicenseState::new("test-license");
         let status = state.detect_clock_manipulation(Duration::hours(1)).unwrap();
         assert!(status.is_ok());
     }

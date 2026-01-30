@@ -27,7 +27,17 @@
       "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" JWT_SECRET=\"dev-secret-key-for-testing\" HOST=\"0.0.0.0\" PORT=\"3001\" timeout 15 cargo run:*)",
       "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" JWT_SECRET=\"dev-secret-key-for-testing\" HOST=\"0.0.0.0\" PORT=\"3001\" GRAXON_DIR=\"../graxon\" timeout 15 cargo run:*)",
       "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" cargo sqlx:*)",
-      "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" cargo fix:*)"
+      "Bash(DATABASE_URL=\"postgresql://licenz:licenz@localhost:5432/licenz\" cargo fix:*)",
+      "WebSearch",
+      "Bash(cargo search:*)",
+      "Bash(cat:*)",
+      "Bash(cargo doc:*)",
+      "Bash(SQLX_OFFLINE=true cargo build:*)",
+      "Bash(DATABASE_URL=\"postgres://licenz:licenz@localhost:5432/licenz\" cargo sqlx migrate run:*)",
+      "Bash(DATABASE_URL=\"postgres://licenz:licenz@localhost:5432/licenz\" cargo sqlx prepare:*)",
+      "Bash(DATABASE_URL=\"postgres://licenz:licenz@localhost:5432/licenz\" cargo test:*)",
+      "Bash(__NEW_LINE_69a0959ecade08f8__ echo \"\")",
+      "Bash(echo:*)"
     ]
   }
 }

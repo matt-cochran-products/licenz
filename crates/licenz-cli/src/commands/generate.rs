@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use colored::Colorize;
 use licenz_core::{
     detect_hardware, HardwareBinding, LicenseData, LicenseGenerator,
