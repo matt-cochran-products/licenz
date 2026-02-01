@@ -175,9 +175,10 @@ pub fn check_revocation_by_serial(
     config: &OnlineCheckConfig,
 ) -> Result<RevocationCheckResult> {
     let results = check_revocation_batch(&[serial.to_string()], config)?;
-    results.into_iter().next().ok_or_else(|| {
-        LicenseError::Validation("No result returned from server".to_string())
-    })
+    results
+        .into_iter()
+        .next()
+        .ok_or_else(|| LicenseError::Validation("No result returned from server".to_string()))
 }
 
 /// Batch check multiple licenses for revocation

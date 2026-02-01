@@ -9,8 +9,9 @@ use rsa::{RsaPrivateKey, RsaPublicKey};
 use std::path::Path;
 
 /// Supported RSA key sizes
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum KeySize {
+    #[default]
     Bits2048,
     Bits3072,
     Bits4096,
@@ -23,12 +24,6 @@ impl KeySize {
             KeySize::Bits3072 => 3072,
             KeySize::Bits4096 => 4096,
         }
-    }
-}
-
-impl Default for KeySize {
-    fn default() -> Self {
-        KeySize::Bits2048
     }
 }
 

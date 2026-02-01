@@ -37,7 +37,11 @@
       "Bash(DATABASE_URL=\"postgres://licenz:licenz@localhost:5432/licenz\" cargo sqlx prepare:*)",
       "Bash(DATABASE_URL=\"postgres://licenz:licenz@localhost:5432/licenz\" cargo test:*)",
       "Bash(__NEW_LINE_69a0959ecade08f8__ echo \"\")",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(npm run lint)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(RUSTDOCFLAGS='-D warnings' cargo doc:*)"
     ]
   }
 }

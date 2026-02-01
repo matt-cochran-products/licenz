@@ -55,8 +55,7 @@ impl LicenseGenerator {
         let signing_key = SigningKey::<Sha256>::new_unprefixed(self.private_key.clone());
         let mut rng = rand::rngs::OsRng;
 
-        let signature = signing_key
-            .sign_with_rng(&mut rng, data);
+        let signature = signing_key.sign_with_rng(&mut rng, data);
 
         Ok(signature.to_bytes().to_vec())
     }

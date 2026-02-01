@@ -39,7 +39,9 @@ impl HardwareInfo {
         }
 
         if let Some(ref machine_id) = self.machine_id {
-            binding.custom.insert("machine_id".to_string(), vec![machine_id.clone()]);
+            binding
+                .custom
+                .insert("machine_id".to_string(), vec![machine_id.clone()]);
         }
 
         binding
@@ -49,21 +51,12 @@ impl HardwareInfo {
 /// Detect hardware information from the current machine
 #[cfg(feature = "hardware-binding")]
 pub fn detect_hardware() -> HardwareInfo {
-    let mut info = HardwareInfo::default();
-
-    // Detect MAC addresses
-    info.mac_addresses = detect_mac_addresses();
-
-    // Detect hostname
-    info.hostname = detect_hostname();
-
-    // Detect disk IDs (platform-specific)
-    info.disk_ids = detect_disk_ids();
-
-    // Detect machine ID
-    info.machine_id = detect_machine_id();
-
-    info
+    HardwareInfo {
+        mac_addresses: detect_mac_addresses(),
+        hostname: detect_hostname(),
+        disk_ids: detect_disk_ids(),
+        machine_id: detect_machine_id(),
+    }
 }
 
 #[cfg(not(feature = "hardware-binding"))]
@@ -82,12 +75,10 @@ fn detect_mac_addresses() -> Vec<String> {
     }
 
     // Also try to get all interfaces
-    if let Ok(interfaces) = mac_address::mac_address_by_name("eth0") {
-        if let Some(mac) = interfaces {
-            let mac_str = mac.to_string().to_uppercase();
-            if !macs.contains(&mac_str) {
-                macs.push(mac_str);
-            }
+    if let Ok(Some(mac)) = mac_address::mac_address_by_name("eth0") {
+        let mac_str = mac.to_string().to_uppercase();
+        if !macs.contains(&mac_str) {
+            macs.push(mac_str);
         }
     }
 
@@ -231,7 +222,10 @@ fn detect_machine_id() -> Option<String> {
 }
 
 /// Check if the current hardware matches the binding
-pub fn verify_hardware_binding(binding: &HardwareBinding, current: &HardwareInfo) -> Result<(), HardwareBindingError> {
+pub fn verify_hardware_binding(
+    binding: &HardwareBinding,
+    current: &HardwareInfo,
+) -> Result<(), HardwareBindingError> {
     // If no binding is set, always pass
     if binding.is_empty() {
         return Ok(());
@@ -239,11 +233,15 @@ pub fn verify_hardware_binding(binding: &HardwareBinding, current: &HardwareInfo
 
     // Check MAC addresses (any match is valid)
     if !binding.mac_addresses.is_empty() {
-        let current_macs: Vec<String> = current.mac_addresses.iter()
+        let current_macs: Vec<String> = current
+            .mac_addresses
+            .iter()
             .map(|m| m.to_uppercase())
             .collect();
 
-        let has_match = binding.mac_addresses.iter()
+        let has_match = binding
+            .mac_addresses
+            .iter()
             .any(|bound| current_macs.contains(&bound.to_uppercase()));
 
         if !has_match {
@@ -257,7 +255,9 @@ pub fn verify_hardware_binding(binding: &HardwareBinding, current: &HardwareInfo
     // Check hostnames (any match is valid)
     if !binding.hostnames.is_empty() {
         if let Some(ref current_hostname) = current.hostname {
-            let has_match = binding.hostnames.iter()
+            let has_match = binding
+                .hostnames
+                .iter()
                 .any(|bound| bound.eq_ignore_ascii_case(current_hostname));
 
             if !has_match {
@@ -276,7 +276,9 @@ pub fn verify_hardware_binding(binding: &HardwareBinding, current: &HardwareInfo
 
     // Check disk IDs (any match is valid)
     if !binding.disk_ids.is_empty() {
-        let has_match = binding.disk_ids.iter()
+        let has_match = binding
+            .disk_ids
+            .iter()
             .any(|bound| current.disk_ids.contains(bound));
 
         if !has_match {
@@ -331,16 +333,36 @@ impl std::fmt::Display for HardwareBindingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MacAddressMismatch { expected, found } => {
-                write!(f, "MAC address mismatch: expected one of {:?}, found {:?}", expected, found)
+                write!(
+                    f,
+                    "MAC address mismatch: expected one of {:?}, found {:?}",
+                    expected, found
+                )
             }
             Self::HostnameMismatch { expected, found } => {
-                write!(f, "Hostname mismatch: expected one of {:?}, found {}", expected, found)
+                write!(
+                    f,
+                    "Hostname mismatch: expected one of {:?}, found {}",
+                    expected, found
+                )
             }
             Self::DiskIdMismatch { expected, found } => {
-                write!(f, "Disk ID mismatch: expected one of {:?}, found {:?}", expected, found)
+                write!(
+                    f,
+                    "Disk ID mismatch: expected one of {:?}, found {:?}",
+                    expected, found
+                )
             }
-            Self::CustomMismatch { key, expected, found } => {
-                write!(f, "Custom binding '{}' mismatch: expected one of {:?}, found {}", key, expected, found)
+            Self::CustomMismatch {
+                key,
+                expected,
+                found,
+            } => {
+                write!(
+                    f,
+                    "Custom binding '{}' mismatch: expected one of {:?}, found {}",
+                    key, expected, found
+                )
             }
         }
     }
@@ -362,11 +384,12 @@ mod tests {
 
     #[test]
     fn test_mac_address_binding() {
-        let binding = HardwareBinding::new()
-            .with_mac_address("AA:BB:CC:DD:EE:FF");
+        let binding = HardwareBinding::new().with_mac_address("AA:BB:CC:DD:EE:FF");
 
-        let mut hardware = HardwareInfo::default();
-        hardware.mac_addresses = vec!["AA:BB:CC:DD:EE:FF".to_string()];
+        let mut hardware = HardwareInfo {
+            mac_addresses: vec!["AA:BB:CC:DD:EE:FF".to_string()],
+            ..Default::default()
+        };
 
         assert!(verify_hardware_binding(&binding, &hardware).is_ok());
 
@@ -376,11 +399,12 @@ mod tests {
 
     #[test]
     fn test_hostname_binding() {
-        let binding = HardwareBinding::new()
-            .with_hostname("my-server");
+        let binding = HardwareBinding::new().with_hostname("my-server");
 
-        let mut hardware = HardwareInfo::default();
-        hardware.hostname = Some("my-server".to_string());
+        let mut hardware = HardwareInfo {
+            hostname: Some("my-server".to_string()),
+            ..Default::default()
+        };
 
         assert!(verify_hardware_binding(&binding, &hardware).is_ok());
 

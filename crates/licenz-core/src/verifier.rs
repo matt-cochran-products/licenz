@@ -1,7 +1,9 @@
 //! License verification functionality (client-side)
 
 use crate::error::{LicenseError, Result};
-use crate::hardware::{detect_hardware, verify_hardware_binding, HardwareBindingError, HardwareInfo};
+use crate::hardware::{
+    detect_hardware, verify_hardware_binding, HardwareBindingError, HardwareInfo,
+};
 use crate::keys::parse_public_key;
 use crate::license::{LicenseFormat, SignedLicense, BINARY_MAGIC, BINARY_VERSION};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -107,8 +109,7 @@ impl LicenseVerifier {
 
     /// Parse a JSON format license
     fn parse_json_license(&self, data: &[u8]) -> Result<SignedLicense> {
-        serde_json::from_slice(data)
-            .map_err(|e| LicenseError::InvalidLicenseFormat(e.to_string()))
+        serde_json::from_slice(data).map_err(|e| LicenseError::InvalidLicenseFormat(e.to_string()))
     }
 
     /// Verify the cryptographic signature of a license
@@ -118,21 +119,23 @@ impl LicenseVerifier {
             .map_err(|e| LicenseError::SerializationError(e.to_string()))?;
 
         // Decode the signature
-        let signature_bytes = BASE64
-            .decode(&license.signature)
-            .map_err(|e| LicenseError::InvalidLicenseFormat(format!("Invalid signature encoding: {}", e)))?;
+        let signature_bytes = BASE64.decode(&license.signature).map_err(|e| {
+            LicenseError::InvalidLicenseFormat(format!("Invalid signature encoding: {}", e))
+        })?;
 
         // Create verifying key
         let verifying_key = VerifyingKey::<Sha256>::new_unprefixed(self.public_key.clone());
 
         // Parse signature
-        let signature = rsa::pkcs1v15::Signature::try_from(signature_bytes.as_slice())
-            .map_err(|e| LicenseError::VerificationFailed(format!("Invalid signature format: {}", e)))?;
+        let signature =
+            rsa::pkcs1v15::Signature::try_from(signature_bytes.as_slice()).map_err(|e| {
+                LicenseError::VerificationFailed(format!("Invalid signature format: {}", e))
+            })?;
 
         // Verify
-        verifying_key
-            .verify(&data_bytes, &signature)
-            .map_err(|e| LicenseError::VerificationFailed(format!("Signature verification failed: {}", e)))
+        verifying_key.verify(&data_bytes, &signature).map_err(|e| {
+            LicenseError::VerificationFailed(format!("Signature verification failed: {}", e))
+        })
     }
 
     /// Verify that the license has not expired
@@ -141,13 +144,21 @@ impl LicenseVerifier {
 
         if now < license.data.valid_from {
             return Err(LicenseError::NotYetValid(
-                license.data.valid_from.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                license
+                    .data
+                    .valid_from
+                    .format("%Y-%m-%d %H:%M:%S UTC")
+                    .to_string(),
             ));
         }
 
         if now > license.data.valid_until {
             return Err(LicenseError::LicenseExpired(
-                license.data.valid_until.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+                license
+                    .data
+                    .valid_until
+                    .format("%Y-%m-%d %H:%M:%S UTC")
+                    .to_string(),
             ));
         }
 
@@ -158,37 +169,38 @@ impl LicenseVerifier {
     pub fn verify_hardware(&self, license: &SignedLicense) -> Result<()> {
         let hardware = self.get_hardware_info();
 
-        verify_hardware_binding(&license.data.hardware_binding, &hardware)
-            .map_err(|e| match e {
-                HardwareBindingError::MacAddressMismatch { expected, found } => {
-                    LicenseError::HardwareBindingMismatch {
-                        field: "mac_address".to_string(),
-                        expected,
-                        actual: found.join(", "),
-                    }
+        verify_hardware_binding(&license.data.hardware_binding, &hardware).map_err(|e| match e {
+            HardwareBindingError::MacAddressMismatch { expected, found } => {
+                LicenseError::HardwareBindingMismatch {
+                    field: "mac_address".to_string(),
+                    expected,
+                    actual: found.join(", "),
                 }
-                HardwareBindingError::HostnameMismatch { expected, found } => {
-                    LicenseError::HardwareBindingMismatch {
-                        field: "hostname".to_string(),
-                        expected,
-                        actual: found,
-                    }
+            }
+            HardwareBindingError::HostnameMismatch { expected, found } => {
+                LicenseError::HardwareBindingMismatch {
+                    field: "hostname".to_string(),
+                    expected,
+                    actual: found,
                 }
-                HardwareBindingError::DiskIdMismatch { expected, found } => {
-                    LicenseError::HardwareBindingMismatch {
-                        field: "disk_id".to_string(),
-                        expected,
-                        actual: found.join(", "),
-                    }
+            }
+            HardwareBindingError::DiskIdMismatch { expected, found } => {
+                LicenseError::HardwareBindingMismatch {
+                    field: "disk_id".to_string(),
+                    expected,
+                    actual: found.join(", "),
                 }
-                HardwareBindingError::CustomMismatch { key, expected, found } => {
-                    LicenseError::HardwareBindingMismatch {
-                        field: key,
-                        expected,
-                        actual: found,
-                    }
-                }
-            })
+            }
+            HardwareBindingError::CustomMismatch {
+                key,
+                expected,
+                found,
+            } => LicenseError::HardwareBindingMismatch {
+                field: key,
+                expected,
+                actual: found,
+            },
+        })
     }
 
     /// Perform full license validation

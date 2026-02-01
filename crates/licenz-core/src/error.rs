@@ -41,44 +41,38 @@ pub enum LicenseError {
 
     #[error("Missing required field: {0}")]
     MissingField(String),
-    
+
     // Anti-tamper errors
     #[error("Clock manipulation detected: system time moved backwards by {drift_hours} hours")]
-    ClockManipulationDetected {
-        drift_hours: i64,
-    },
-    
+    ClockManipulationDetected { drift_hours: i64 },
+
     #[error("Clock drift too large: {drift_hours} hours difference from expected")]
-    ClockDriftTooLarge {
-        drift_hours: i64,
-    },
-    
+    ClockDriftTooLarge { drift_hours: i64 },
+
     #[error("License state file has been tampered with")]
     StateFileTampered,
-    
+
     #[error("License state file is for a different license")]
     StateLicenseMismatch,
-    
+
     #[error("Activation denied: {0}")]
     ActivationDenied(String),
-    
+
     #[error("Activation limit reached: {current} of {max} activations used")]
-    ActivationLimitReached {
-        max: u32,
-        current: u32,
-    },
-    
+    ActivationLimitReached { max: u32, current: u32 },
+
     #[error("Hardware fingerprint mismatch: only {percentage:.1}% match (minimum 70% required)")]
-    HardwareFingerprintMismatch {
-        percentage: f32,
-    },
-    
+    HardwareFingerprintMismatch { percentage: f32 },
+
     #[error("Insecure key permissions on {path}: mode {mode}. {suggestion}")]
     InsecureKeyPermissions {
         path: std::path::PathBuf,
         mode: String,
         suggestion: String,
     },
+
+    #[error("Validation error: {0}")]
+    Validation(String),
 }
 
 /// Result type alias for license operations

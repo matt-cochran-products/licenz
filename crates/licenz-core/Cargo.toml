@@ -9,7 +9,7 @@ readme = "README.md"
 [features]
 default = ["hardware-binding"]
 hardware-binding = ["dep:sysinfo", "dep:mac_address", "dep:hostname"]
-cloud-metadata = []
+cloud-metadata = ["dep:url"]
 # For client apps that only need verification (smaller binary)
 verify-only = []
 # For server/admin apps that need generation capabilities
@@ -41,6 +41,9 @@ hostname = { workspace = true, optional = true }
 
 # Optional online validation
 reqwest = { version = "0.12", features = ["json", "blocking"], optional = true }
+
+# Optional URL parsing for cloud metadata
+url = { version = "2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
