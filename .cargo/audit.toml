@@ -1,0 +1,22 @@
+# Security audit configuration
+# See: https://github.com/rustsec/rustsec/tree/main/cargo-audit
+
+[advisories]
+# Advisories to ignore (with justification)
+ignore = [
+    # RUSTSEC-2023-0071: RSA timing side-channel (Marvin Attack)
+    #
+    # This vulnerability requires an attacker to observe timing information
+    # over a network. Our use case is:
+    # - License signing: Done server-side in controlled environments
+    # - License verification: Done locally on end-user machines
+    #
+    # Neither scenario exposes the RSA operations to network timing attacks.
+    # The rsa crate maintainers are working on a fix (see RustCrypto/RSA#390).
+    # We will update when a patched version is available.
+    "RUSTSEC-2023-0071",
+]
+
+# Note: RUSTSEC-2025-0141 (bincode unmaintained) is a warning, not a vulnerability.
+# The bincode crate v1.3.3 is considered complete by its maintainers.
+# It's widely used and stable. We'll monitor for any security issues.

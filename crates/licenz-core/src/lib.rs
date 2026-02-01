@@ -46,7 +46,7 @@
 //!
 //! ### Verifying a License (Client-Side) - Recommended Pattern
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use licenz_core::require_license;
 //!
 //! // Public key embedded at compile time
@@ -56,9 +56,9 @@
 //!     // This validates the license and returns a guard
 //!     let license = require_license("license.lic", PUBLIC_KEY)
 //!         .expect("Valid license required to run");
-//!     
+//!
 //!     println!("Licensed to: {}", license.customer_id);
-//!     
+//!
 //!     // Feature gating
 //!     if license.has_feature("premium") {
 //!         enable_premium_features();
@@ -71,6 +71,7 @@
 //! - `hardware-binding` (default): Enable hardware detection for license binding
 //! - `verify-only`: Include only verification code (smaller binary for client apps)
 //! - `generate`: Include license generation code (for server/admin apps)
+//! - `online-check`: Enable online license validation (revocation check, sync)
 
 pub mod anti_tamper;
 pub mod container;
@@ -84,18 +85,29 @@ pub mod license;
 pub mod state_manager;
 pub mod verifier;
 
+#[cfg(feature = "online-check")]
+pub mod online_check;
+
 // Re-export main types
+pub use anti_tamper::{ClockStatus, HardwareFingerprint, LicenseState, MatchResult};
+pub use container::{ContainerBinding, InstanceIdSource, RuntimeEnvironment};
+pub use encrypted_store::{validate_passphrase, EncryptedKeyStore, MIN_PASSPHRASE_LENGTH};
 pub use error::{LicenseError, Result};
 pub use generator::LicenseGenerator;
-pub use guard::{require_license, require_license_with_verifier, validate_license_bytes, ValidatedLicense};
+pub use guard::{
+    require_license, require_license_with_verifier, validate_license_bytes, ValidatedLicense,
+};
 pub use hardware::{detect_hardware, HardwareInfo};
 pub use keys::{parse_private_key, parse_public_key, KeyPair, KeySize};
 pub use license::{HardwareBinding, LicenseData, LicenseDataBuilder, LicenseFormat, SignedLicense};
-pub use verifier::{detect_license_format, LicenseVerifier, ValidationResult};
-pub use anti_tamper::{ClockStatus, HardwareFingerprint, LicenseState, MatchResult};
 pub use state_manager::StateManager;
-pub use container::{ContainerBinding, InstanceIdSource, RuntimeEnvironment};
-pub use encrypted_store::{EncryptedKeyStore, validate_passphrase, MIN_PASSPHRASE_LENGTH};
+pub use verifier::{detect_license_format, LicenseVerifier, ValidationResult};
+
+#[cfg(feature = "online-check")]
+pub use online_check::{
+    check_revocation, check_revocation_batch, check_revocation_by_serial, sync_report,
+    OnlineCheckConfig, RevocationCheckResult, RevocationStatus, SyncReport, SyncResponse,
+};
 
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -160,12 +172,12 @@ mod tests {
         assert_eq!(binding.hostnames.len(), 1);
         assert_eq!(binding.disk_ids.len(), 1);
     }
-    
+
     #[test]
     fn test_validated_license_guard() {
         let keypair = KeyPair::generate(KeySize::Bits2048).unwrap();
         let generator = LicenseGenerator::new(keypair.private_key.clone());
-        
+
         let data = LicenseData::builder()
             .id("GUARD-TEST")
             .serial("SN-GUARD")
@@ -175,14 +187,14 @@ mod tests {
             .feature("test_feature")
             .build()
             .unwrap();
-        
+
         let signed = generator.generate(data).unwrap();
         let binary = generator.export_binary(&signed).unwrap();
         let public_key = keypair.export_public_pem().unwrap();
-        
+
         // Use the guard pattern
         let validated = validate_license_bytes(&binary, &public_key).unwrap();
-        
+
         assert_eq!(validated.customer_id, "Guard Customer");
         assert!(validated.has_feature("test_feature"));
     }

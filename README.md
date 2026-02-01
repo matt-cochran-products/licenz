@@ -1,17 +1,67 @@
 # 🔐 licenz
 
-**Offline-first software license management for Rust.**
+**Licenses that enforce themselves.**
 
-Self-hostable. No phone-home required. Works air-gapped.
+Self-enforcing software licenses that work offline. No server. No phone home. Air-gap ready.
+
+```bash
+# Install
+cargo install licenz-cli
+
+# Generate keys
+licenz keygen --output ./keys
+
+# Create license
+licenz generate \
+  --key keys/private.pem \
+  --customer "acme-corp" \
+  --features premium,api \
+  --credits api_calls:100000 \
+  --days 365 \
+  --output license.lic
+
+# Validate (works offline)
+licenz verify --key keys/public.pem --license license.lic
+```
+
+## Why licenz?
+
+Traditional licensing: `License key → Call server → "Is it valid?"`
+
+**licenz**: The license IS the contract. Everything—expiry, features, limits, usage—is cryptographically signed and embedded in the license file.
+
+| Feature | licenz | Keygen.sh | Cryptlex |
+|---------|--------|-----------|----------|
+| **Offline validation** | ✅ Full | ✅ Full | ⚠️ Cached |
+| **Offline usage tracking** | ✅ Yes | ❌ No | ❌ No |
+| **Self-enforcing limits** | ✅ Yes | ❌ Server-side | ❌ Server-side |
+| **Air-gap ready** | ✅ Full | ⚠️ Partial | ⚠️ Partial |
+| **Open source** | ✅ MIT | ⚠️ Fair Source | ❌ No |
+| **No server required** | ✅ Yes | ❌ No | ❌ No |
+| **Price (no server)** | **Free** | N/A | N/A |
+
+## Features
+
+- 🔒 **Self-enforcing** - Expiry, features, limits embedded and signed
+- 📊 **Usage tracking** - Tamper-proof receipts, cryptographic proofs
+- 💰 **Prepaid credits** - Enforce offline, sync when convenient
+- 🚦 **Rate limiting** - Throttle via metadata
+- 📴 **Air-gap ready** - Works on submarines, aircraft, factory floors
+- 🐳 **Runs anywhere** - Docker, Kubernetes, embedded, edge
+- 🌐 **Any language** - Rust library + CLI for all other languages
+
+## Quick Start
+
+### Rust
 
 ```rust
-const PUBLIC_KEY: &str = include_str!("../public.pem");
+use licenz_core::{require_license, ValidatedLicense};
+
+const PUBLIC_KEY: &str = include_str!("../keys/public.pem");
 
 fn main() {
-    let license = licenz::require_license("license.lic", PUBLIC_KEY)
+    let license = require_license("license.lic", PUBLIC_KEY)
         .expect("Valid license required");
-    
-    println!("Licensed to: {}", license.customer_id);
     
     if license.has_feature("premium") {
         enable_premium_features();
@@ -19,197 +69,80 @@ fn main() {
 }
 ```
 
-## Why licenz?
+### Other Languages (via CLI)
 
-| Feature | licenz | Keygen.sh | Cryptlex |
-|---------|--------|-----------|----------|
-| **Offline validation** | ✅ Full | Partial | ✅ Full |
-| **Self-hostable** | ✅ Yes | ❌ No | ❌ No |
-| **Open source** | ✅ MIT | ❌ No | ❌ No |
-| **Rust-native** | ✅ Core | SDK only | ❌ No |
-| **Price** | Free | $99+/mo | $49+/mo |
-
-## Features
-
-- 🔒 **RSA-SHA256 signatures** - Cryptographically secure, tamper-proof
-- 💻 **Hardware binding** - Tie licenses to specific machines
-- 📴 **Offline validation** - No internet required after activation
-- ⏰ **Expiration management** - Time-limited licenses with grace periods
-- 🎛️ **Feature flags** - `has_feature("premium")` for tiered licensing
-- 🐳 **Container-aware** - Works in Docker, Kubernetes, cloud VMs
-- 🔄 **Auto-renewal** - Short-lived licenses that refresh each billing cycle
-
-## Quick Start
-
-### Installation
-
-```bash
-cargo add licenz-core
+```python
+# Python
+import subprocess
+subprocess.run(['licenz', 'verify', '--key', 'keys/public.pem', '--license', 'license.lic'])
 ```
 
-### Generate Keys (once)
-
-```bash
-cargo install licenz-cli
-licenz keygen --output ./keys
+```javascript
+// Node.js
+const { execSync } = require('child_process');
+execSync('licenz verify --key keys/public.pem --license license.lic');
 ```
 
-### Generate a License (server-side)
-
-```rust
-use licenz::{KeyPair, LicenseGenerator, LicenseData};
-
-let keypair = KeyPair::from_pem_files("keys/private.pem", "keys/public.pem")?;
-let generator = LicenseGenerator::new(keypair.private_key);
-
-let license = LicenseData::builder()
-    .id("LIC-001")
-    .customer_id("customer@example.com")
-    .product_id("my-app")
-    .valid_days(35)
-    .feature("basic")
-    .feature("premium")
-    .build()?;
-
-let signed = generator.generate(license)?;
-generator.save_binary(&signed, "license.lic")?;
-```
-
-### Verify a License (client-side)
-
-```rust
-use licenz::{require_license, ValidatedLicense};
-
-// Embed public key at compile time
-const PUBLIC_KEY: &str = include_str!("../keys/public.pem");
-
-fn main() {
-    let license = require_license("license.lic", PUBLIC_KEY)
-        .expect("Valid license required");
-    
-    // Feature gating
-    if license.has_feature("premium") {
-        enable_premium();
-    }
-}
-```
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         YOUR SETUP                               │
-└─────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
-  │   Stripe    │         │  Your       │         │  Customer   │
-  │   Paddle    │────────▶│  License    │────────▶│  App        │
-  │   etc.      │ webhook │  Server     │ license │  (offline)  │
-  └─────────────┘         └─────────────┘         └─────────────┘
-                                │                        │
-                                │ signs with             │ verifies with
-                                │ PRIVATE key            │ PUBLIC key
-                                │                        │
-                                ▼                        ▼
-                          [private.pem]            [public.pem]
-                          (keep secret!)           (embed in binary)
-```
-
-## Crates
-
-| Crate | Description |
-|-------|-------------|
-| `licenz-core` | Core library - license generation & verification |
-| `licenz-cli` | Command-line tool for key/license management |
-| `licenz-server` | HTTP server with webhook handlers |
+See [Language Integration](docs/getting-started/language-integration.md) for detailed examples.
 
 ## Documentation
 
-- [Fly.io Deployment Guide](docs/FLY_IO_DEPLOYMENT.md)
-- [Hardware Binding](docs/HARDWARE_BINDING.md)
-- [License Renewal](docs/LICENSE_RENEWAL.md)
-- [Payment Provider Integration](docs/PAYMENT_ABSTRACTION.md)
-- [Security Analysis (FMECA)](FMECA_ROUND_2.md)
+### Getting Started
+- [Installation](docs/getting-started/installation.md)
+- [Quick Start](docs/getting-started/quick-start.md)
+- [Language Integration](docs/getting-started/language-integration.md)
 
-## CLI Usage
+### Guides
+- [Hardware Binding](docs/guides/hardware-binding.md) - Tie licenses to specific machines
+- [Usage Tracking](docs/guides/usage-tracking.md) - Track and enforce usage limits
+- [Air-Gapped Deployment](docs/guides/air-gapped-deployment.md) - Deploy without internet
+- [Docker & Kubernetes](docs/guides/docker-kubernetes.md) - Container deployments
 
-```bash
-# Generate key pair
-licenz keygen --bits 2048 --output ./keys
+### Reference
+- [CLI Commands](docs/reference/cli-commands.md) - Complete CLI reference
+- [Rust API](docs/reference/rust-api.md) - Library documentation
+- [License Format](docs/reference/license-format.md) - Binary format specification
 
-# Generate license
-licenz generate \
-  --key keys/private.pem \
-  --customer "user@example.com" \
-  --product "my-app" \
-  --features basic,premium \
-  --days 365 \
-  --output license.lic
+### FAQ
+- [General Questions](docs/faq/general.md)
+- [Usage Tracking](docs/faq/usage-tracking.md)
+- [Security](docs/faq/security.md)
+- [Deployment](docs/faq/deployment.md)
+- [Troubleshooting](docs/faq/troubleshooting.md)
 
-# Verify license
-licenz verify --key keys/public.pem --license license.lic
+## Use Cases
 
-# Show license info
-licenz info --license license.lic
+- **Defense / Government** - Classified networks, air-gapped by law
+- **Manufacturing** - Factory floor OT networks
+- **Maritime** - Ships, oil rigs, submarines
+- **Aviation** - Aircraft systems
+- **Healthcare** - Medical devices, isolated networks
+- **Desktop Software** - Apps that should work without internet
 
-# Get hardware fingerprint
-licenz hardware
-```
+## Roadmap
 
-## HTTP Server
+- [x] Core Rust library with cryptographic validation
+- [x] CLI tool for key generation, license creation, usage tracking
+- [x] Offline usage tracking with hash-chained receipts
+- [ ] Native language bindings (Python, Node.js, Go)
+- [ ] Managed service (licenz.dev) with dashboard
+- [ ] Payment provider webhooks (Stripe, Paddle, LemonSqueezy)
 
-```bash
-# Start server
-licenz-server --private-key keys/private.pem --public-key keys/public.pem
+## Contributing
 
-# Or with environment variables
-export LICENZ_PRIVATE_KEY="$(cat keys/private.pem)"
-export LICENZ_PUBLIC_KEY="$(cat keys/public.pem)"
-licenz-server
-```
-
-**Endpoints:**
-- `GET /health` - Health check
-- `POST /api/v1/licenses/generate` - Generate license
-- `POST /api/v1/licenses/verify` - Verify license
-- `POST /api/v1/licenses/refresh` - Refresh expiring license
-- `POST /webhooks/stripe` - Stripe webhook handler
-- `POST /webhooks/paddle` - Paddle webhook handler
-
-## Hosted Version
-
-Don't want to run your own server?
-
-**[licenz.dev](https://licenz.dev)** - Hosted license management starting at $29/mo
-
-- Dashboard UI
-- Automatic Stripe/Paddle integration
-- Email delivery
-- Analytics
-- No DevOps required
-
-## Security
-
-- Private keys never leave your server
-- Public keys embedded in client binaries at compile time
-- RSA-2048+ with SHA-256 signatures
-- Hardware fingerprinting prevents license sharing
-- Clock manipulation detection
-- Binary format resists tampering
-
-See [FMECA_ROUND_2.md](FMECA_ROUND_2.md) for detailed security analysis.
+Contributions welcome! We'd love help with:
+- Native language bindings
+- Additional CLI features
+- Documentation improvements
+- Security audits
+- Real-world testing in air-gapped environments
 
 ## License
 
 MIT License - Use it however you want.
 
-## Contributing
-
-Contributions welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
-
 ## Support
 
-- 📖 [Documentation](https://licenz.dev/docs)
-- 💬 [GitHub Discussions](https://github.com/yourorg/licenz/discussions)
-- 🐛 [Issue Tracker](https://github.com/yourorg/licenz/issues)
-- 📧 [Email Support](mailto:support@licenz.dev) (hosted customers)
+- 💬 [GitHub Discussions](https://github.com/licenz-dev/licenz/discussions)
+- 🐛 [Issue Tracker](https://github.com/licenz-dev/licenz/issues)
+- 📖 [Documentation](docs/)

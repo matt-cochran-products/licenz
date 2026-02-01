@@ -38,7 +38,8 @@ impl HardwareBinding {
 
     /// Add multiple MAC addresses
     pub fn with_mac_addresses(mut self, macs: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.mac_addresses.extend(macs.into_iter().map(|m| m.into().to_uppercase()));
+        self.mac_addresses
+            .extend(macs.into_iter().map(|m| m.into().to_uppercase()));
         self
     }
 
@@ -126,7 +127,9 @@ impl LicenseData {
 
     /// Check if a feature is enabled
     pub fn has_feature(&self, feature: &str) -> bool {
-        self.features.iter().any(|f| f.eq_ignore_ascii_case(feature))
+        self.features
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case(feature))
     }
 
     /// Get remaining days until expiration
@@ -240,13 +243,23 @@ impl LicenseDataBuilder {
         let now = Utc::now();
 
         Ok(LicenseData {
-            id: self.id.ok_or_else(|| LicenseError::MissingField("id".into()))?,
-            serial: self.serial.ok_or_else(|| LicenseError::MissingField("serial".into()))?,
-            customer_id: self.customer_id.ok_or_else(|| LicenseError::MissingField("customer_id".into()))?,
-            product_id: self.product_id.ok_or_else(|| LicenseError::MissingField("product_id".into()))?,
+            id: self
+                .id
+                .ok_or_else(|| LicenseError::MissingField("id".into()))?,
+            serial: self
+                .serial
+                .ok_or_else(|| LicenseError::MissingField("serial".into()))?,
+            customer_id: self
+                .customer_id
+                .ok_or_else(|| LicenseError::MissingField("customer_id".into()))?,
+            product_id: self
+                .product_id
+                .ok_or_else(|| LicenseError::MissingField("product_id".into()))?,
             version: self.version,
             valid_from: self.valid_from.unwrap_or(now),
-            valid_until: self.valid_until.unwrap_or(now + chrono::Duration::days(365)),
+            valid_until: self
+                .valid_until
+                .unwrap_or(now + chrono::Duration::days(365)),
             features: self.features,
             hardware_binding: self.hardware_binding,
             max_seats: self.max_seats,

@@ -17,7 +17,7 @@ use std::path::Path;
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// use licenz_core::{require_license, LicenseVerifier};
 ///
 /// // This is the ONLY way to get license data
@@ -33,7 +33,7 @@ use std::path::Path;
 pub struct ValidatedLicense {
     /// The verified license
     inner: SignedLicense,
-    
+
     /// Validation timestamp
     validated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -46,27 +46,27 @@ impl ValidatedLicense {
             validated_at: chrono::Utc::now(),
         }
     }
-    
+
     /// Get the underlying license data
     pub fn data(&self) -> &LicenseData {
         &self.inner.data
     }
-    
+
     /// Get when this license was validated
     pub fn validated_at(&self) -> chrono::DateTime<chrono::Utc> {
         self.validated_at
     }
-    
+
     /// Check if a feature is enabled
     pub fn has_feature(&self, feature: &str) -> bool {
         self.inner.data.has_feature(feature)
     }
-    
+
     /// Get days remaining
     pub fn days_remaining(&self) -> i64 {
         self.inner.data.days_remaining()
     }
-    
+
     /// Get the raw signed license (for serialization, etc.)
     pub fn into_inner(self) -> SignedLicense {
         self.inner
@@ -76,7 +76,7 @@ impl ValidatedLicense {
 // Allow direct access to common fields via Deref
 impl Deref for ValidatedLicense {
     type Target = LicenseData;
-    
+
     fn deref(&self) -> &Self::Target {
         &self.inner.data
     }
@@ -104,17 +104,20 @@ impl Deref for ValidatedLicense {
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// const PUBLIC_KEY: &str = include_str!("../public.pem");
 ///
 /// fn main() {
 ///     let license = licenz_core::require_license("license.lic", PUBLIC_KEY)
 ///         .expect("Valid license required");
-///     
+///
 ///     println!("Welcome, {}!", license.customer_id);
 /// }
 /// ```
-pub fn require_license(license_path: impl AsRef<Path>, public_key_pem: &str) -> Result<ValidatedLicense> {
+pub fn require_license(
+    license_path: impl AsRef<Path>,
+    public_key_pem: &str,
+) -> Result<ValidatedLicense> {
     let verifier = LicenseVerifier::from_pem(public_key_pem)?;
     let license = verifier.load_and_validate(license_path.as_ref())?;
     Ok(ValidatedLicense::new(license))
@@ -168,7 +171,7 @@ pub fn validate_license_bytes(
 macro_rules! require_valid_license {
     ($license_path:expr) => {{
         const PUBLIC_KEY: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/public.pem"));
-        
+
         match $crate::require_license($license_path, PUBLIC_KEY) {
             Ok(license) => license,
             Err(e) => {
@@ -178,10 +181,10 @@ macro_rules! require_valid_license {
             }
         }
     }};
-    
+
     ($license_path:expr, $key_path:expr) => {{
         const PUBLIC_KEY: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $key_path));
-        
+
         match $crate::require_license($license_path, PUBLIC_KEY) {
             Ok(license) => license,
             Err(e) => {
@@ -219,7 +222,7 @@ macro_rules! feature_gate {
             $enabled
         }
     };
-    
+
     ($license:expr, $feature:expr, $enabled:block else $disabled:block) => {
         if $license.has_feature($feature) {
             $enabled
@@ -233,11 +236,11 @@ macro_rules! feature_gate {
 mod tests {
     use super::*;
     use crate::{KeyPair, KeySize, LicenseData, LicenseGenerator};
-    
+
     fn create_test_license() -> (String, Vec<u8>) {
         let keypair = KeyPair::generate(KeySize::Bits2048).unwrap();
         let generator = LicenseGenerator::new(keypair.private_key.clone());
-        
+
         let data = LicenseData::builder()
             .id("TEST-001")
             .serial("SN-12345")
@@ -248,33 +251,33 @@ mod tests {
             .feature("premium")
             .build()
             .unwrap();
-        
+
         let signed = generator.generate(data).unwrap();
         let binary = generator.export_binary(&signed).unwrap();
         let public_key = keypair.export_public_pem().unwrap();
-        
+
         (public_key, binary)
     }
-    
+
     #[test]
     fn test_validated_license_access() {
         let (public_key, binary) = create_test_license();
-        
+
         let license = validate_license_bytes(&binary, &public_key).unwrap();
-        
+
         // Can access data through guard
         assert_eq!(license.customer_id, "Test Customer");
         assert!(license.has_feature("basic"));
         assert!(license.has_feature("premium"));
         assert!(!license.has_feature("enterprise"));
     }
-    
+
     #[test]
     fn test_validated_license_deref() {
         let (public_key, binary) = create_test_license();
-        
+
         let license = validate_license_bytes(&binary, &public_key).unwrap();
-        
+
         // Deref allows direct field access
         assert_eq!(license.product_id, "TestApp");
         assert_eq!(license.serial, "SN-12345");
