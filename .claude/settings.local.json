@@ -41,7 +41,8 @@
       "Bash(npm run lint)",
       "Bash(cargo fmt:*)",
       "Bash(cargo clippy:*)",
-      "Bash(RUSTDOCFLAGS='-D warnings' cargo doc:*)"
+      "Bash(RUSTDOCFLAGS='-D warnings' cargo doc:*)",
+      "Bash(cargo audit:*)"
     ]
   }
 }
