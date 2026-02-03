@@ -246,9 +246,7 @@ pub enum SecurityAnomaly {
     },
 
     /// Running in a virtual machine
-    VirtualMachineDetected {
-        hypervisor: Option<String>,
-    },
+    VirtualMachineDetected { hypervisor: Option<String> },
 
     /// Running in a container
     ContainerDetected { runtime: String },
@@ -413,7 +411,11 @@ impl SecurityWitness {
         })
     }
 
-    fn attest_expiration(&self, license: &SignedLicense, now: DateTime<Utc>) -> ExpirationAttestation {
+    fn attest_expiration(
+        &self,
+        license: &SignedLicense,
+        now: DateTime<Utc>,
+    ) -> ExpirationAttestation {
         let days_remaining = license.data.days_remaining();
         let is_within_window = now >= license.data.valid_from && now <= license.data.valid_until;
 
@@ -788,7 +790,10 @@ mod tests {
         // The match_percentage is a measurement, not a pass/fail
         // The anomalies list observations, not judgments
         assert!(attestation.signature_valid); // Fact: signature matches
-        // Days remaining might be 364 or 365 depending on exact timing
-        assert!(attestation.expiration.days_remaining >= 364 && attestation.expiration.days_remaining <= 365);
+                                              // Days remaining might be 364 or 365 depending on exact timing
+        assert!(
+            attestation.expiration.days_remaining >= 364
+                && attestation.expiration.days_remaining <= 365
+        );
     }
 }

@@ -120,7 +120,10 @@ impl StateManager {
     /// Load state with detailed observations about each storage location.
     ///
     /// This provides full attestation data for policy layers to make decisions.
-    pub fn load_with_observations(&self, license_id: &str) -> Result<(Option<LicenseState>, StateObservations)> {
+    pub fn load_with_observations(
+        &self,
+        license_id: &str,
+    ) -> Result<(Option<LicenseState>, StateObservations)> {
         let mut best_state: Option<LicenseState> = None;
         let mut observations = StateObservations::default();
 

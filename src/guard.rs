@@ -190,7 +190,10 @@ macro_rules! load_license {
 /// decision. The Security Witness Pattern recommends separating attestation
 /// (this crate) from enforcement (licenz-policy crate).
 #[macro_export]
-#[deprecated(since = "0.2.0", note = "Use load_license! macro or licenz-policy crate for enforcement")]
+#[deprecated(
+    since = "0.2.0",
+    note = "Use load_license! macro or licenz-policy crate for enforcement"
+)]
 macro_rules! require_valid_license {
     ($license_path:expr) => {{
         const PUBLIC_KEY: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/public.pem"));

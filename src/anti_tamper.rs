@@ -376,6 +376,6 @@ mod tests {
         // MAC (2) + Disk (3) = 5 out of 10 = 50%
         // Whether this passes depends on the policy threshold chosen by caller
         assert!(!result.meets_threshold(70.0)); // Would fail default 70% threshold
-        assert!(result.meets_threshold(50.0));  // Would pass permissive 50% threshold
+        assert!(result.meets_threshold(50.0)); // Would pass permissive 50% threshold
     }
 }
