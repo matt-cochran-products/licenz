@@ -389,7 +389,7 @@ impl SecurityWitness {
         // Calculate overall validity (factual, not policy)
         let is_valid = signature_valid
             && expiration.is_within_window
-            && (hardware.was_checked == false
+            && (!hardware.was_checked
                 || hardware
                     .matched_factors
                     .len()
