@@ -72,6 +72,8 @@ if !attestation.is_valid {
 
 ## Quick Start
 
+> **Most users should use [licenz-cli](https://github.com/outboundlabs/licenz-cli-release)** for key generation and license creation. The examples below show the Rust API for programmatic use cases (e.g. building your own license server).
+
 ### Generate Keys (one-time setup)
 
 ```rust
@@ -190,6 +192,11 @@ It does NOT prevent:
 
 For high-security needs, combine with code signing, integrity checking, and server-side validation.
 
+## Used By
+
+- [graxon.ai](https://graxon.ai) - Air-gapped workflow engine
+- [cctx.ai](https://cctx.ai) - Coding utility MCP toolset
+
 ## Use Cases
 
 - **Desktop Software** - Applications that need to work offline
@@ -204,9 +211,10 @@ MIT License - see [LICENSE](LICENSE)
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+This crate is the open-source, auditable verification layer of the [licenz.dev](https://licenz.dev) platform. It's published as source so customers and security teams can inspect the attestation logic. Bug fixes and improvements are welcome, but the scope is intentionally narrow — attestation only, no enforcement.
 
 ## Related
 
+- [licenz-cli](https://github.com/outboundlabs/licenz-cli-release) - CLI tool for key generation, license creation, and management (free, closed source)
 - [licenz-policy](https://github.com/outboundlabs/licenz-saas) - Policy enforcement layer (closed source)
 - [licenz.dev](https://licenz.dev) - Managed license management platform
