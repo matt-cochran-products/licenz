@@ -272,18 +272,30 @@ impl HardwareFingerprint {
             score,
             max_score,
             percentage,
-            passed: percentage >= 70.0, // 70% threshold
         }
     }
 }
 
 /// Result of hardware fingerprint matching
+///
+/// Note: This struct provides attestation data only. The policy layer
+/// (e.g., `licenz-policy` crate) decides whether the match percentage
+/// is sufficient based on configurable thresholds.
 #[derive(Debug, Clone)]
 pub struct MatchResult {
     pub score: u32,
     pub max_score: u32,
     pub percentage: f32,
-    pub passed: bool,
+}
+
+impl MatchResult {
+    /// Check if the match meets a given threshold (0.0 - 100.0)
+    ///
+    /// This is a convenience method. Policy enforcement should use
+    /// the `percentage` field directly with configurable thresholds.
+    pub fn meets_threshold(&self, threshold_percent: f32) -> bool {
+        self.percentage >= threshold_percent
+    }
 }
 
 /// Hash a string with SHA-256 and return hex
@@ -337,8 +349,8 @@ mod tests {
         };
 
         let result = fp1.match_score(&fp2);
-        assert!(result.passed);
         assert_eq!(result.percentage, 100.0);
+        assert!(result.meets_threshold(70.0)); // Policy decision made by caller
     }
 
     #[test]
@@ -361,7 +373,9 @@ mod tests {
         };
 
         let result = fp1.match_score(&fp2);
-        // MAC (2) + Disk (3) = 5 out of 10 = 50%, should fail 70% threshold
-        assert!(!result.passed);
+        // MAC (2) + Disk (3) = 5 out of 10 = 50%
+        // Whether this passes depends on the policy threshold chosen by caller
+        assert!(!result.meets_threshold(70.0)); // Would fail default 70% threshold
+        assert!(result.meets_threshold(50.0)); // Would pass permissive 50% threshold
     }
 }

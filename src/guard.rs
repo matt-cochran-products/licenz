@@ -146,28 +146,54 @@ pub fn validate_license_bytes(
     Ok(ValidatedLicense::new(license))
 }
 
-/// Macro to require a valid license at the start of main().
+/// Macro to load and validate a license at compile time.
 ///
 /// This macro ensures that:
 /// 1. The public key exists at compile time (include_str! fails otherwise)
-/// 2. License validation happens before any other code runs
-/// 3. The program exits immediately if the license is invalid
+/// 2. License validation happens early in the program
+///
+/// Returns `Result<ValidatedLicense>` - the caller decides how to handle errors.
 ///
 /// # Usage
 ///
-/// First, ensure you have a `public.pem` file in your crate root:
-///
 /// ```rust,ignore
 /// // In main.rs
-/// licenz_core::require_valid_license!("license.lic");
+/// let license = licenz_core::load_license!("license.lic")?;
 /// ```
 ///
 /// Or with a custom key path:
 ///
 /// ```rust,ignore
-/// licenz_core::require_valid_license!("license.lic", "keys/public.pem");
+/// let license = licenz_core::load_license!("license.lic", "keys/public.pem")?;
 /// ```
+///
+/// # Note
+///
+/// For policy enforcement (exit on failure, custom thresholds, etc.),
+/// use `licenz-policy` crate's `PolicyEnforcer` instead.
 #[macro_export]
+macro_rules! load_license {
+    ($license_path:expr) => {{
+        const PUBLIC_KEY: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/public.pem"));
+        $crate::require_license($license_path, PUBLIC_KEY)
+    }};
+
+    ($license_path:expr, $key_path:expr) => {{
+        const PUBLIC_KEY: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/", $key_path));
+        $crate::require_license($license_path, PUBLIC_KEY)
+    }};
+}
+
+/// **DEPRECATED**: Use `load_license!` instead, which returns a Result.
+///
+/// This macro calls `std::process::exit(1)` on failure, which is an enforcement
+/// decision. The Security Witness Pattern recommends separating attestation
+/// (this crate) from enforcement (licenz-policy crate).
+#[macro_export]
+#[deprecated(
+    since = "0.2.0",
+    note = "Use load_license! macro or licenz-policy crate for enforcement"
+)]
 macro_rules! require_valid_license {
     ($license_path:expr) => {{
         const PUBLIC_KEY: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/public.pem"));

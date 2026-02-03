@@ -1,48 +1,53 @@
-[workspace]
-resolver = "2"
-members = [
-    "crates/licenz-core",
-    # Note: licenz-cli lives in the licenz-saas repo (it depends on that codebase)
-]
-
-[workspace.package]
+[package]
+name = "licenz-core"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/licenz-dev/licenz"
+description = "Offline software license verification with RSA signatures, hardware binding, and anti-tamper detection"
+readme = "README.md"
+repository = "https://github.com/outboundlabs/licenz"
 homepage = "https://licenz.dev"
-description = "Offline-first software license management for Rust"
-keywords = ["license", "licensing", "offline", "cryptography", "saas"]
+keywords = ["license", "licensing", "offline", "cryptography", "verification"]
 categories = ["authentication", "cryptography"]
 
-[workspace.dependencies]
-# Cryptography
+[features]
+default = ["hardware-binding"]
+hardware-binding = ["dep:sysinfo", "dep:mac_address", "dep:hostname"]
+cloud-metadata = ["dep:url"]
+# For client apps that only need verification (smaller binary)
+verify-only = []
+# For server/admin apps that need generation capabilities
+generate = []
+# For online license validation (revocation check, sync)
+online-check = ["dep:reqwest"]
+
+[dependencies]
 rsa = "0.9"
 sha2 = "0.10"
 rand = "0.8"
-base64 = "0.21"
+base64 = "0.22"
 pem = "3"
-
-# Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bincode = "1"
-
-# Time
 chrono = { version = "0.4", features = ["serde"] }
-
-# Hardware detection
-sysinfo = "0.30"
-mac_address = "1"
-hostname = "0.3"
-
-# CLI
-clap = { version = "4", features = ["derive"] }
-
-# Utilities
 thiserror = "1"
-anyhow = "1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 hex = "0.4"
+tracing = "0.1"
+dirs-next = "2"
+aes-gcm = "0.10"
+
+# Optional hardware detection
+sysinfo = { version = "0.30", optional = true }
+mac_address = { version = "1", optional = true }
+hostname = { version = "0.3", optional = true }
+
+# Optional online validation
+reqwest = { version = "0.12", features = ["json", "blocking"], optional = true }
+
+# Optional URL parsing for cloud metadata
+url = { version = "2", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
