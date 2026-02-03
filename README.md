@@ -1,148 +1,212 @@
-# 🔐 licenz
+# licenz
 
-**Licenses that enforce themselves.**
+[![Crates.io](https://img.shields.io/crates/v/licenz-core.svg)](https://crates.io/crates/licenz-core)
+[![Documentation](https://docs.rs/licenz-core/badge.svg)](https://docs.rs/licenz-core)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Self-enforcing software licenses that work offline. No server. No phone home. Air-gap ready.
+**Offline software license verification for Rust.**
 
-```bash
-# Install
-cargo install licenz-cli
-
-# Generate keys
-licenz keygen --output ./keys
-
-# Create license
-licenz generate \
-  --key keys/private.pem \
-  --customer "acme-corp" \
-  --features premium,api \
-  --credits api_calls:100000 \
-  --days 365 \
-  --output license.lic
-
-# Validate (works offline)
-licenz verify --key keys/public.pem --license license.lic
-```
-
-## Why licenz?
-
-Traditional licensing: `License key → Call server → "Is it valid?"`
-
-**licenz**: The license IS the contract. Everything—expiry, features, limits, usage—is cryptographically signed and embedded in the license file.
-
-| Feature | licenz | Keygen.sh | Cryptlex |
-|---------|--------|-----------|----------|
-| **Offline validation** | ✅ Full | ✅ Full | ⚠️ Cached |
-| **Offline usage tracking** | ✅ Yes | ❌ No | ❌ No |
-| **Self-enforcing limits** | ✅ Yes | ❌ Server-side | ❌ Server-side |
-| **Air-gap ready** | ✅ Full | ⚠️ Partial | ⚠️ Partial |
-| **Open source** | ✅ MIT | ⚠️ Fair Source | ❌ No |
-| **No server required** | ✅ Yes | ❌ No | ❌ No |
-| **Price (no server)** | **Free** | N/A | N/A |
-
-## Features
-
-- 🔒 **Self-enforcing** - Expiry, features, limits embedded and signed
-- 📊 **Usage tracking** - Tamper-proof receipts, cryptographic proofs
-- 💰 **Prepaid credits** - Enforce offline, sync when convenient
-- 🚦 **Rate limiting** - Throttle via metadata
-- 📴 **Air-gap ready** - Works on submarines, aircraft, factory floors
-- 🐳 **Runs anywhere** - Docker, Kubernetes, embedded, edge
-- 🌐 **Any language** - Rust library + CLI for all other languages
-
-## Quick Start
-
-### Rust
+Cryptographically signed licenses that work without a server. Verify licenses offline, bind to hardware, detect tampering.
 
 ```rust
-use licenz_core::{require_license, ValidatedLicense};
+use licenz_core::{SecurityWitness, WitnessConfig};
 
-const PUBLIC_KEY: &str = include_str!("../keys/public.pem");
+const PUBLIC_KEY: &str = include_str!("keys/public.pem");
 
-fn main() {
-    let license = require_license("license.lic", PUBLIC_KEY)
-        .expect("Valid license required");
-    
-    if license.has_feature("premium") {
-        enable_premium_features();
+fn main() -> anyhow::Result<()> {
+    let witness = SecurityWitness::new(PUBLIC_KEY)?;
+    let attestation = witness.attest("license.lic", &WitnessConfig::default())?;
+
+    if !attestation.is_valid {
+        eprintln!("License invalid: {:?}", attestation.signature_error);
+        std::process::exit(1);
     }
+
+    println!("Licensed to: {}", attestation.expiration.days_remaining);
+    Ok(())
 }
 ```
 
-### Other Languages (via CLI)
+## Features
 
-```python
-# Python
-import subprocess
-subprocess.run(['licenz', 'verify', '--key', 'keys/public.pem', '--license', 'license.lic'])
+- **Offline Verification** - No server required, works air-gapped
+- **RSA-SHA256 Signatures** - Cryptographically signed, tamper-proof
+- **Hardware Binding** - Tie licenses to MAC address, hostname, disk ID
+- **Expiration Management** - Automatic expiration checking
+- **Anti-Tamper Detection** - Clock manipulation, state file tampering
+- **Environment Detection** - VM, container, cloud provider awareness
+- **Security Witness Pattern** - Clean separation of attestation and enforcement
+
+## Installation
+
+```toml
+[dependencies]
+licenz-core = "0.1"
 ```
 
-```javascript
-// Node.js
-const { execSync } = require('child_process');
-execSync('licenz verify --key keys/public.pem --license license.lic');
+## Architecture: Security Witness Pattern
+
+This library follows the **Security Witness Pattern**, separating:
+
+| Layer | Responsibility | This Crate |
+|-------|----------------|------------|
+| **Attestation** | Observe, measure, report facts | Yes |
+| **Enforcement** | Decide, act on attestations | Your app / licenz-policy |
+
+The library tells you *what it observes*. Your application decides *what to do about it*.
+
+```rust
+let attestation = witness.attest("license.lic", &config)?;
+
+// Attestation provides facts:
+println!("Signature valid: {}", attestation.signature_valid);
+println!("Days remaining: {}", attestation.expiration.days_remaining);
+println!("Hardware match: {:?}%", attestation.hardware.match_percentage);
+println!("Anomalies: {:?}", attestation.anomalies);
+
+// Your app decides the response:
+if !attestation.is_valid {
+    // Exit? Degrade? Warn? Your choice.
+}
 ```
 
-See [Language Integration](docs/getting-started/language-integration.md) for detailed examples.
+## Quick Start
 
-## Documentation
+### Generate Keys (one-time setup)
 
-### Getting Started
-- [Installation](docs/getting-started/installation.md)
-- [Quick Start](docs/getting-started/quick-start.md)
-- [Language Integration](docs/getting-started/language-integration.md)
+```rust
+use licenz_core::{KeyPair, KeySize};
 
-### Guides
-- [Hardware Binding](docs/guides/hardware-binding.md) - Tie licenses to specific machines
-- [Usage Tracking](docs/guides/usage-tracking.md) - Track and enforce usage limits
-- [Air-Gapped Deployment](docs/guides/air-gapped-deployment.md) - Deploy without internet
-- [Docker & Kubernetes](docs/guides/docker-kubernetes.md) - Container deployments
+let keypair = KeyPair::generate(KeySize::Bits2048)?;
+keypair.save_to_files("private.pem", "public.pem")?;
+```
 
-### Reference
-- [CLI Commands](docs/reference/cli-commands.md) - Complete CLI reference
-- [Rust API](docs/reference/rust-api.md) - Library documentation
-- [License Format](docs/reference/license-format.md) - Binary format specification
+### Create a License (your license server)
 
-### FAQ
-- [General Questions](docs/faq/general.md)
-- [Usage Tracking](docs/faq/usage-tracking.md)
-- [Security](docs/faq/security.md)
-- [Deployment](docs/faq/deployment.md)
-- [Troubleshooting](docs/faq/troubleshooting.md)
+```rust
+use licenz_core::{LicenseGenerator, LicenseData, KeyPair};
+
+let keypair = KeyPair::load_from_files("private.pem", "public.pem")?;
+let generator = LicenseGenerator::new(keypair.private_key);
+
+let license = LicenseData::builder()
+    .id("LIC-001")
+    .serial("SN-12345")
+    .customer_id("ACME Corp")
+    .product_id("MyApp")
+    .valid_days(365)
+    .feature("basic")
+    .feature("premium")
+    .mac_address("AA:BB:CC:DD:EE:FF")  // Optional hardware binding
+    .build()?;
+
+let signed = generator.generate(license)?;
+generator.save_binary(&signed, "license.lic")?;
+```
+
+### Verify a License (your application)
+
+```rust
+use licenz_core::{SecurityWitness, WitnessConfig};
+
+const PUBLIC_KEY: &str = include_str!("public.pem");
+
+fn main() -> anyhow::Result<()> {
+    let witness = SecurityWitness::new(PUBLIC_KEY)?;
+    let attestation = witness.attest("license.lic", &WitnessConfig::default())?;
+
+    if !attestation.is_valid {
+        eprintln!("License validation failed");
+        if let Some(err) = &attestation.signature_error {
+            eprintln!("  Signature: {}", err);
+        }
+        if let Some(issue) = &attestation.expiration.issue {
+            eprintln!("  Expiration: {:?}", issue);
+        }
+        std::process::exit(1);
+    }
+
+    // Check specific features
+    // (You'll need to load the license data separately for feature checks)
+    let verifier = licenz_core::LicenseVerifier::from_pem(PUBLIC_KEY)?;
+    let license = verifier.load_and_validate("license.lic")?;
+
+    if license.data.has_feature("premium") {
+        println!("Premium features enabled!");
+    }
+
+    Ok(())
+}
+```
+
+## Feature Flags
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `hardware-binding` | Hardware detection (MAC, hostname, disk) | Yes |
+| `verify-only` | Minimal build, verification only | |
+| `generate` | Include license generation | |
+| `online-check` | Online revocation checking | |
+
+```toml
+# Minimal client (verification only)
+licenz-core = { version = "0.1", default-features = false, features = ["verify-only"] }
+
+# Full server (generation + verification)
+licenz-core = { version = "0.1", features = ["generate"] }
+```
+
+## Security Model
+
+### What This Library Provides
+
+- **Cryptographic verification** - RSA-2048/3072/4096 signatures
+- **Tamper detection** - Clock manipulation, state file integrity
+- **Hardware fingerprinting** - Multi-factor hardware binding
+- **Attestation** - Detailed observations about license state
+
+### What This Library Does NOT Provide
+
+- **Obfuscation** - Code is open source and auditable
+- **Anti-debugging** - No runtime protection
+- **Enforcement** - Library reports facts, doesn't make decisions
+
+For enforcement (exit on failure, configurable thresholds, etc.), use the `licenz-policy` crate or implement your own policy layer.
+
+### Threat Model
+
+This library is designed for **honest customers in controlled environments**, not adversarial reverse engineering. It prevents:
+
+- Casual copying of license files
+- Clock manipulation to extend expiration
+- License sharing across machines (via hardware binding)
+- Accidental use of expired licenses
+
+It does NOT prevent:
+
+- Determined attackers with debuggers
+- Binary patching
+- Memory manipulation
+
+For high-security needs, combine with code signing, integrity checking, and server-side validation.
 
 ## Use Cases
 
-- **Defense / Government** - Classified networks, air-gapped by law
-- **Manufacturing** - Factory floor OT networks
-- **Maritime** - Ships, oil rigs, submarines
-- **Aviation** - Aircraft systems
-- **Healthcare** - Medical devices, isolated networks
-- **Desktop Software** - Apps that should work without internet
-
-## Roadmap
-
-- [x] Core Rust library with cryptographic validation
-- [x] CLI tool for key generation, license creation, usage tracking
-- [x] Offline usage tracking with hash-chained receipts
-- [ ] Native language bindings (Python, Node.js, Go)
-- [ ] Managed service (licenz.dev) with dashboard
-- [ ] Payment provider webhooks (Stripe, Paddle, LemonSqueezy)
-
-## Contributing
-
-Contributions welcome! We'd love help with:
-- Native language bindings
-- Additional CLI features
-- Documentation improvements
-- Security audits
-- Real-world testing in air-gapped environments
+- **Desktop Software** - Applications that need to work offline
+- **On-Premise Deployments** - Enterprise software behind firewalls
+- **Air-Gapped Environments** - Defense, manufacturing, healthcare
+- **Embedded Systems** - IoT devices without reliable connectivity
+- **Developer Tools** - CLI tools, IDE plugins, build tools
 
 ## License
 
-MIT License - Use it however you want.
+MIT License - see [LICENSE](LICENSE)
 
-## Support
+## Contributing
 
-- 💬 [GitHub Discussions](https://github.com/licenz-dev/licenz/discussions)
-- 🐛 [Issue Tracker](https://github.com/licenz-dev/licenz/issues)
-- 📖 [Documentation](docs/)
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## Related
+
+- [licenz-policy](https://github.com/outboundlabs/licenz-saas) - Policy enforcement layer (closed source)
+- [licenz.dev](https://licenz.dev) - Managed license management platform

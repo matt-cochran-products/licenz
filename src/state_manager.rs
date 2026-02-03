@@ -1,12 +1,54 @@
 //! Multi-location state management for tamper resistance
 //!
-//! This module stores license state in multiple locations to prevent
-//! simple deletion attacks on clock manipulation detection.
+//! This module stores license state in multiple locations to detect
+//! deletion attacks on clock manipulation detection.
+//!
+//! # Security Witness Pattern
+//!
+//! This module provides **attestation** about state file integrity.
+//! It detects and reports issues but does not automatically repair them.
+//! A policy layer should decide how to respond.
 
 use crate::anti_tamper::LicenseState;
 use crate::error::{LicenseError, Result};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
+
+/// Observations about state file storage locations.
+///
+/// This provides attestation data for policy layers to make decisions about
+/// whether to repair, fail, or warn about state file issues.
+#[derive(Debug, Clone, Default)]
+pub struct StateObservations {
+    /// Locations with valid state files
+    pub valid_locations: Vec<PathBuf>,
+    /// Locations where state files are missing
+    pub missing_locations: Vec<PathBuf>,
+    /// Locations with corrupted/tampered state files
+    pub corrupted_locations: Vec<PathBuf>,
+    /// Locations with read errors (permissions, etc.)
+    pub error_locations: Vec<PathBuf>,
+}
+
+impl StateObservations {
+    /// Check if there's any inconsistency in state files
+    pub fn has_inconsistency(&self) -> bool {
+        !self.missing_locations.is_empty() || !self.corrupted_locations.is_empty()
+    }
+
+    /// Check if any valid state exists
+    pub fn has_valid_state(&self) -> bool {
+        !self.valid_locations.is_empty()
+    }
+
+    /// Total number of locations checked
+    pub fn total_locations(&self) -> usize {
+        self.valid_locations.len()
+            + self.missing_locations.len()
+            + self.corrupted_locations.len()
+            + self.error_locations.len()
+    }
+}
 
 /// Manages license state across multiple storage locations
 pub struct StateManager {
@@ -65,16 +107,27 @@ impl StateManager {
         }
     }
 
-    /// Load the most recent valid state from any location
+    /// Load the most recent valid state from any location.
+    ///
+    /// Returns the state along with observations about the storage locations.
+    /// This is pure attestation - no automatic repairs are performed.
+    /// Use `repair()` explicitly if policy dictates recovery should be attempted.
     pub fn load(&self, license_id: &str) -> Result<Option<LicenseState>> {
+        let (state, _observations) = self.load_with_observations(license_id)?;
+        Ok(state)
+    }
+
+    /// Load state with detailed observations about each storage location.
+    ///
+    /// This provides full attestation data for policy layers to make decisions.
+    pub fn load_with_observations(&self, license_id: &str) -> Result<(Option<LicenseState>, StateObservations)> {
         let mut best_state: Option<LicenseState> = None;
-        let mut found_locations = Vec::new();
-        let mut corrupted_locations = Vec::new();
+        let mut observations = StateObservations::default();
 
         for path in &self.paths {
             match LicenseState::load(path, license_id) {
                 Ok(Some(state)) => {
-                    found_locations.push(path.clone());
+                    observations.valid_locations.push(path.clone());
 
                     // Keep the state with highest validation count
                     match &best_state {
@@ -86,50 +139,77 @@ impl StateManager {
                     }
                 }
                 Ok(None) => {
-                    // File doesn't exist - not an error
+                    observations.missing_locations.push(path.clone());
                 }
                 Err(LicenseError::StateFileTampered) => {
-                    corrupted_locations.push(path.clone());
-                    tracing::warn!("Corrupted state file detected at {:?}", path);
+                    observations.corrupted_locations.push(path.clone());
+                    tracing::debug!("Corrupted state file detected at {:?}", path);
                 }
                 Err(_) => {
-                    // Other errors (permissions, etc.) - skip silently
+                    observations.error_locations.push(path.clone());
                 }
             }
         }
 
-        // DETECTION: If some files exist but not all, possible tampering
-        let existing_count = found_locations.len() + corrupted_locations.len();
-        if existing_count > 0 && existing_count < self.paths.len() {
-            tracing::warn!(
-                "State file inconsistency: {} of {} locations have data. Possible tampering.",
-                existing_count,
+        // Log observations (but don't auto-repair - that's a policy decision)
+        if !observations.corrupted_locations.is_empty() {
+            tracing::debug!(
+                "Found {} corrupted state files",
+                observations.corrupted_locations.len()
+            );
+        }
+
+        if observations.has_inconsistency() {
+            tracing::debug!(
+                "State file inconsistency: {} valid, {} missing, {} corrupted of {} total",
+                observations.valid_locations.len(),
+                observations.missing_locations.len(),
+                observations.corrupted_locations.len(),
                 self.paths.len()
             );
-
-            // Restore missing files from best state
-            if let Some(ref state) = best_state {
-                self.repair_missing(state);
-            }
         }
 
-        // DETECTION: If we found corrupted files, repair them
-        if !corrupted_locations.is_empty() {
-            tracing::warn!(
-                "Found {} corrupted state files. Attempting repair.",
-                corrupted_locations.len()
-            );
+        Ok((best_state, observations))
+    }
 
-            if let Some(ref state) = best_state {
-                for path in &corrupted_locations {
-                    if let Err(e) = state.save(path) {
-                        tracing::error!("Failed to repair state file {:?}: {}", path, e);
+    /// Repair missing and corrupted state files from the best available state.
+    ///
+    /// This is a policy action - call it explicitly when policy dictates recovery.
+    /// Returns the number of files successfully repaired.
+    pub fn repair(&self, state: &LicenseState) -> usize {
+        let mut repaired = 0;
+
+        for path in &self.paths {
+            let needs_repair = !path.exists() || {
+                // Check if corrupted
+                match std::fs::read_to_string(path) {
+                    Ok(contents) => {
+                        let lines: Vec<&str> = contents.lines().collect();
+                        if lines.len() < 2 {
+                            true
+                        } else {
+                            let json_data = lines[..lines.len() - 1].join("\n");
+                            let stored_checksum = lines.last().unwrap_or(&"");
+                            let computed = sha256_short(&json_data);
+                            &computed != stored_checksum
+                        }
                     }
+                    Err(_) => true,
+                }
+            };
+
+            if needs_repair {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if state.save(path).is_ok() {
+                    repaired += 1;
+                    tracing::info!("Repaired state file {:?}", path);
                 }
             }
         }
 
-        Ok(best_state)
+        repaired
     }
 
     /// Save state to all locations
@@ -160,22 +240,6 @@ impl StateManager {
         }
 
         Ok(())
-    }
-
-    /// Repair missing state files
-    fn repair_missing(&self, state: &LicenseState) {
-        for path in &self.paths {
-            if !path.exists() {
-                if let Some(parent) = path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                if let Err(e) = state.save(path) {
-                    tracing::warn!("Failed to restore state file {:?}: {}", path, e);
-                } else {
-                    tracing::info!("Restored missing state file {:?}", path);
-                }
-            }
-        }
     }
 
     /// Delete all state files (for testing or license revocation)
@@ -230,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_state_manager_repairs_missing() {
+    fn test_state_manager_detects_missing() {
         let temp_dir = TempDir::new().unwrap();
         let paths = vec![
             temp_dir.path().join("state1.dat"),
@@ -254,11 +318,21 @@ mod tests {
         std::fs::remove_file(&paths[1]).unwrap();
         assert!(!paths[1].exists());
 
-        // Load should detect and repair
-        let loaded = manager.load("test-license").unwrap();
+        // Load should detect the missing file but NOT auto-repair
+        let (loaded, observations) = manager.load_with_observations("test-license").unwrap();
         assert!(loaded.is_some());
+        assert!(observations.has_inconsistency());
+        assert_eq!(observations.missing_locations.len(), 1);
+        assert_eq!(observations.valid_locations.len(), 2);
 
-        // All files should now exist again
+        // File should still be missing (no auto-repair)
+        assert!(!paths[1].exists());
+
+        // Now explicitly repair (policy decision)
+        let repaired = manager.repair(&state);
+        assert!(repaired >= 1); // At least the missing file should be repaired
+
+        // All files should now exist
         for path in &paths {
             assert!(path.exists(), "File should be restored: {:?}", path);
         }

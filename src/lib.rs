@@ -2,6 +2,16 @@
 //!
 //! A powerful offline software license management library for Rust.
 //!
+//! ## Security Witness Pattern
+//!
+//! This library follows the Security Witness Pattern, separating:
+//!
+//! - **Attestation** (this crate): Observes, measures, and reports facts about licenses
+//! - **Enforcement** (licenz-policy): Decides and enforces based on attestations
+//!
+//! The core library is open source and auditable. All verification logic is transparent.
+//! Policy enforcement is handled by the separate `licenz-policy` crate.
+//!
 //! ## Features
 //!
 //! - **Offline License Validation**: Generate licenses that can be verified without internet connectivity
@@ -10,7 +20,7 @@
 //! - **Expiration Management**: Set and enforce license expiration dates
 //! - **Binary Format**: Compact, tamper-resistant binary license format
 //! - **JSON Support**: Legacy JSON format for backward compatibility
-//! - **Anti-Tamper**: Clock manipulation detection and hardware fingerprinting
+//! - **Security Witness**: Comprehensive attestation of license and system state
 //!
 //! ## Quick Start
 //!
@@ -44,26 +54,39 @@
 //! generator.save_binary(&signed_license, "license.lic".as_ref()).unwrap();
 //! ```
 //!
-//! ### Verifying a License (Client-Side) - Recommended Pattern
+//! ### Attestation (Recommended - Security Witness Pattern)
 //!
 //! ```rust,ignore
-//! use licenz_core::require_license;
+//! use licenz_core::{SecurityWitness, WitnessConfig};
 //!
 //! // Public key embedded at compile time
 //! const PUBLIC_KEY: &str = include_str!("../keys/public.pem");
 //!
 //! fn main() {
-//!     // This validates the license and returns a guard
-//!     let license = require_license("license.lic", PUBLIC_KEY)
-//!         .expect("Valid license required to run");
+//!     let witness = SecurityWitness::new(PUBLIC_KEY).unwrap();
+//!     let attestation = witness.attest("license.lic", &WitnessConfig::default()).unwrap();
 //!
-//!     println!("Licensed to: {}", license.customer_id);
+//!     // Attestation provides facts - your app decides what to do
+//!     println!("Signature valid: {}", attestation.signature_valid);
+//!     println!("Days remaining: {}", attestation.expiration.days_remaining);
+//!     println!("Anomalies: {:?}", attestation.anomalies);
 //!
-//!     // Feature gating
-//!     if license.has_feature("premium") {
-//!         enable_premium_features();
+//!     // Pass to licenz-policy for enforcement, or handle yourself
+//!     if !attestation.is_valid {
+//!         eprintln!("License invalid");
+//!         std::process::exit(1);
 //!     }
 //! }
+//! ```
+//!
+//! ### Legacy: Direct Validation (Deprecated)
+//!
+//! ```rust,ignore
+//! use licenz_core::require_license;
+//!
+//! // This pattern is deprecated - use SecurityWitness + licenz-policy instead
+//! let license = require_license("license.lic", PUBLIC_KEY)
+//!     .expect("Valid license required to run");
 //! ```
 //!
 //! ## Feature Flags
@@ -84,6 +107,7 @@ pub mod keys;
 pub mod license;
 pub mod state_manager;
 pub mod verifier;
+pub mod witness;
 
 #[cfg(feature = "online-check")]
 pub mod online_check;
@@ -100,8 +124,15 @@ pub use guard::{
 pub use hardware::{detect_hardware, HardwareInfo};
 pub use keys::{parse_private_key, parse_public_key, KeyPair, KeySize};
 pub use license::{HardwareBinding, LicenseData, LicenseDataBuilder, LicenseFormat, SignedLicense};
-pub use state_manager::StateManager;
+pub use state_manager::{StateManager, StateObservations};
 pub use verifier::{detect_license_format, LicenseVerifier, ValidationResult};
+
+// Security Witness Pattern exports
+pub use witness::{
+    ClockAttestation, ClockStatusAttestation, EnvironmentAttestation, ExpirationAttestation,
+    ExpirationIssue, HardwareAttestation, SecurityAnomaly, SecurityAttestation, SecurityWitness,
+    StateFileAttestation, StateFileObservation, StateFileStatus, WitnessConfig,
+};
 
 #[cfg(feature = "online-check")]
 pub use online_check::{

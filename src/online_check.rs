@@ -16,7 +16,7 @@
 //! let license: SignedLicense = // ... load license
 //! let result = online_check::check_revocation(
 //!     &license,
-//!     "https://api.licenz.io",
+//!     "https://your-server.com",
 //!     "lk_your_api_key",
 //! )?;
 //!
