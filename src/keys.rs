@@ -1,5 +1,24 @@
-//! RSA key management for license signing and verification
+//! Key management for license signing and verification
+//!
+//! This module provides key management functionality that works with the
+//! pluggable cryptographic architecture. It maintains backward compatibility
+//! with RSA keys while supporting new algorithms like Ed25519.
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use licenz_core::keys::{CryptoKeyPair, KeyPair, KeySize};
+//! use licenz_core::crypto::algorithm_ids;
+//!
+//! // Legacy RSA key pair (backward compatible)
+//! let rsa_keypair = KeyPair::generate(KeySize::Bits2048).unwrap();
+//!
+//! // New algorithm-agnostic key pair
+//! let ed25519_keypair = CryptoKeyPair::generate(algorithm_ids::ED25519).unwrap();
+//! let rsa_keypair = CryptoKeyPair::generate(algorithm_ids::RSA_SHA256).unwrap();
+//! ```
 
+use crate::crypto::{algorithm_ids, CryptoRegistry, SignatureAlgorithm};
 use crate::error::{LicenseError, Result};
 use pem::{encode, Pem};
 use rand::rngs::OsRng;
@@ -136,6 +155,111 @@ pub fn extract_public_key(private_key: &RsaPrivateKey) -> RsaPublicKey {
     RsaPublicKey::from(private_key)
 }
 
+/// Algorithm-agnostic key pair that works with any supported signature algorithm
+///
+/// This struct provides a unified interface for key management across different
+/// cryptographic algorithms (RSA, Ed25519, etc.).
+#[derive(Debug, Clone)]
+pub struct CryptoKeyPair {
+    /// The private key in PEM format
+    pub private_key_pem: String,
+    /// The public key in PEM format
+    pub public_key_pem: String,
+    /// The algorithm identifier (e.g., "RSA-SHA256", "Ed25519")
+    pub algorithm_id: String,
+}
+
+impl CryptoKeyPair {
+    /// Generate a new key pair using the specified algorithm
+    ///
+    /// # Arguments
+    /// * `algorithm_id` - The algorithm to use (e.g., "RSA-SHA256", "Ed25519")
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use licenz_core::keys::CryptoKeyPair;
+    /// use licenz_core::crypto::algorithm_ids;
+    ///
+    /// let keypair = CryptoKeyPair::generate(algorithm_ids::ED25519).unwrap();
+    /// ```
+    pub fn generate(algorithm_id: &str) -> Result<Self> {
+        let algorithm = CryptoRegistry::get_signature_algorithm(algorithm_id)?;
+        let (private_key_pem, public_key_pem) = algorithm.generate_keypair()?;
+        Ok(Self {
+            private_key_pem,
+            public_key_pem,
+            algorithm_id: algorithm_id.to_string(),
+        })
+    }
+
+    /// Create from existing PEM keys
+    ///
+    /// # Arguments
+    /// * `private_key_pem` - The private key in PEM format
+    /// * `public_key_pem` - The public key in PEM format
+    /// * `algorithm_id` - The algorithm identifier
+    pub fn from_pem(private_key_pem: String, public_key_pem: String, algorithm_id: &str) -> Self {
+        Self {
+            private_key_pem,
+            public_key_pem,
+            algorithm_id: algorithm_id.to_string(),
+        }
+    }
+
+    /// Load a key pair from files
+    ///
+    /// # Arguments
+    /// * `private_path` - Path to the private key PEM file
+    /// * `public_path` - Path to the public key PEM file
+    /// * `algorithm_id` - The algorithm identifier
+    pub fn load_from_files(
+        private_path: &Path,
+        public_path: &Path,
+        algorithm_id: &str,
+    ) -> Result<Self> {
+        let private_key_pem = std::fs::read_to_string(private_path)?;
+        let public_key_pem = std::fs::read_to_string(public_path)?;
+        Ok(Self::from_pem(
+            private_key_pem,
+            public_key_pem,
+            algorithm_id,
+        ))
+    }
+
+    /// Save the key pair to files
+    pub fn save_to_files(&self, private_path: &Path, public_path: &Path) -> Result<()> {
+        std::fs::write(private_path, &self.private_key_pem)?;
+        std::fs::write(public_path, &self.public_key_pem)?;
+        Ok(())
+    }
+
+    /// Sign data using this key pair's private key
+    pub fn sign(&self, data: &[u8]) -> Result<Vec<u8>> {
+        let algorithm = CryptoRegistry::get_signature_algorithm(&self.algorithm_id)?;
+        algorithm.sign(data, &self.private_key_pem)
+    }
+
+    /// Verify a signature using this key pair's public key
+    pub fn verify(&self, data: &[u8], signature: &[u8]) -> Result<()> {
+        let algorithm = CryptoRegistry::get_signature_algorithm(&self.algorithm_id)?;
+        algorithm.verify(data, signature, &self.public_key_pem)
+    }
+
+    /// Get the signature algorithm for this key pair
+    pub fn get_algorithm(&self) -> Result<&'static dyn SignatureAlgorithm> {
+        CryptoRegistry::get_signature_algorithm(&self.algorithm_id)
+    }
+
+    /// Convert a legacy RSA KeyPair to a CryptoKeyPair
+    pub fn from_rsa_keypair(keypair: &KeyPair) -> Result<Self> {
+        Ok(Self {
+            private_key_pem: keypair.export_private_pem()?,
+            public_key_pem: keypair.export_public_pem()?,
+            algorithm_id: algorithm_ids::RSA_SHA256.to_string(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,5 +287,47 @@ mod tests {
 
         assert_eq!(keypair.private_key, parsed_private);
         assert_eq!(keypair.public_key, parsed_public);
+    }
+
+    #[test]
+    fn test_crypto_keypair_rsa() {
+        let keypair = CryptoKeyPair::generate(algorithm_ids::RSA_SHA256).unwrap();
+        assert_eq!(keypair.algorithm_id, algorithm_ids::RSA_SHA256);
+        assert!(keypair.private_key_pem.contains("PRIVATE KEY"));
+        assert!(keypair.public_key_pem.contains("PUBLIC KEY"));
+
+        // Test sign and verify
+        let data = b"test message for RSA";
+        let signature = keypair.sign(data).unwrap();
+        assert!(keypair.verify(data, &signature).is_ok());
+    }
+
+    #[test]
+    fn test_crypto_keypair_ed25519() {
+        let keypair = CryptoKeyPair::generate(algorithm_ids::ED25519).unwrap();
+        assert_eq!(keypair.algorithm_id, algorithm_ids::ED25519);
+        assert!(keypair.private_key_pem.contains("PRIVATE KEY"));
+        assert!(keypair.public_key_pem.contains("PUBLIC KEY"));
+
+        // Test sign and verify
+        let data = b"test message for Ed25519";
+        let signature = keypair.sign(data).unwrap();
+        assert!(keypair.verify(data, &signature).is_ok());
+
+        // Ed25519 signatures are always 64 bytes
+        assert_eq!(signature.len(), 64);
+    }
+
+    #[test]
+    fn test_crypto_keypair_from_rsa_keypair() {
+        let rsa_keypair = KeyPair::generate(KeySize::Bits2048).unwrap();
+        let crypto_keypair = CryptoKeyPair::from_rsa_keypair(&rsa_keypair).unwrap();
+
+        assert_eq!(crypto_keypair.algorithm_id, algorithm_ids::RSA_SHA256);
+
+        // Test that signing works
+        let data = b"conversion test";
+        let signature = crypto_keypair.sign(data).unwrap();
+        assert!(crypto_keypair.verify(data, &signature).is_ok());
     }
 }
