@@ -73,6 +73,40 @@ pub enum LicenseError {
 
     #[error("Validation error: {0}")]
     Validation(String),
+
+    // Sneakernet (offline activation) errors
+    #[error("Invalid activation request: {0}")]
+    InvalidActivationRequest(String),
+
+    #[error("Invalid activation response: {0}")]
+    InvalidActivationResponse(String),
+
+    #[error("Activation request checksum mismatch - data may be corrupted")]
+    ActivationRequestCorrupted,
+
+    #[error("Activation response signature mismatch - data may be corrupted")]
+    ActivationResponseCorrupted,
+
+    #[error(
+        "Activation request/response version mismatch: request v{request}, response v{response}"
+    )]
+    ActivationVersionMismatch { request: u8, response: u8 },
+
+    #[error("Activation response does not match request ID")]
+    ActivationRequestMismatch,
+
+    #[error("Activation response has expired")]
+    ActivationResponseExpired,
+
+    // Admin unlock errors
+    #[error("Invalid unlock response code: {0}")]
+    InvalidResponseCode(String),
+
+    #[error("Unlock response has expired")]
+    UnlockResponseExpired,
+
+    #[error("Machine is locked: {0}")]
+    MachineLocked(String),
 }
 
 /// Result type alias for license operations

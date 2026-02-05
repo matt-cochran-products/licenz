@@ -20,6 +20,9 @@ verify-only = []
 generate = []
 # For online license validation (revocation check, sync)
 online-check = ["dep:reqwest"]
+# Post-quantum cryptography support (Dilithium3, Kyber768, hybrid modes)
+# Note: Significantly increases binary size (~2MB) but provides quantum resistance
+post-quantum = ["dep:pqcrypto-dilithium", "dep:pqcrypto-kyber", "dep:pqcrypto-traits"]
 
 [dependencies]
 rsa = "0.9"
@@ -37,6 +40,7 @@ hex = "0.4"
 tracing = "0.1"
 dirs-next = "2"
 aes-gcm = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 
 # Optional hardware detection
 sysinfo = { version = "0.30", optional = true }
@@ -48,6 +52,11 @@ reqwest = { version = "0.12", features = ["json", "blocking"], optional = true }
 
 # Optional URL parsing for cloud metadata
 url = { version = "2", optional = true }
+
+# Optional post-quantum cryptography
+pqcrypto-dilithium = { version = "0.5", optional = true }
+pqcrypto-kyber = { version = "0.8", optional = true }
+pqcrypto-traits = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

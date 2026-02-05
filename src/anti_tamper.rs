@@ -134,7 +134,7 @@ impl LicenseState {
 }
 
 /// Result of clock manipulation check
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClockStatus {
     /// Clock is within acceptable range
     Ok { current: DateTime<Utc> },

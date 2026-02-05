@@ -98,6 +98,7 @@
 
 pub mod anti_tamper;
 pub mod container;
+pub mod crypto;
 pub mod encrypted_store;
 pub mod error;
 pub mod generator;
@@ -105,7 +106,10 @@ pub mod guard;
 pub mod hardware;
 pub mod keys;
 pub mod license;
+pub mod sneakernet;
 pub mod state_manager;
+pub mod support_bundle;
+pub mod unlock;
 pub mod verifier;
 pub mod witness;
 
@@ -117,21 +121,45 @@ pub use anti_tamper::{ClockStatus, HardwareFingerprint, LicenseState, MatchResul
 pub use container::{ContainerBinding, InstanceIdSource, RuntimeEnvironment};
 pub use encrypted_store::{validate_passphrase, EncryptedKeyStore, MIN_PASSPHRASE_LENGTH};
 pub use error::{LicenseError, Result};
-pub use generator::LicenseGenerator;
+pub use generator::{CryptoGenerator, LicenseGenerator};
 pub use guard::{
     require_license, require_license_with_verifier, validate_license_bytes, ValidatedLicense,
 };
 pub use hardware::{detect_hardware, HardwareInfo};
-pub use keys::{parse_private_key, parse_public_key, KeyPair, KeySize};
+pub use keys::{parse_private_key, parse_public_key, CryptoKeyPair, KeyPair, KeySize};
 pub use license::{HardwareBinding, LicenseData, LicenseDataBuilder, LicenseFormat, SignedLicense};
 pub use state_manager::{StateManager, StateObservations};
-pub use verifier::{detect_license_format, LicenseVerifier, ValidationResult};
+pub use verifier::{detect_license_format, CryptoVerifier, LicenseVerifier, ValidationResult};
+
+// Cryptographic algorithm exports
+pub use crypto::{algorithm_ids, CryptoRegistry, EncryptionAlgorithm, SignatureAlgorithm};
 
 // Security Witness Pattern exports
 pub use witness::{
     ClockAttestation, ClockStatusAttestation, EnvironmentAttestation, ExpirationAttestation,
     ExpirationIssue, HardwareAttestation, SecurityAnomaly, SecurityAttestation, SecurityWitness,
     StateFileAttestation, StateFileObservation, StateFileStatus, WitnessConfig,
+};
+
+// Sneakernet (offline activation) exports
+pub use sneakernet::{
+    detect_format as detect_sneakernet_format, ActivationRequest, ActivationRequestBuilder,
+    ActivationResponse, SneakernetFormat, REQUEST_MAGIC, REQUEST_TEXT_PREFIX, REQUEST_TEXT_SUFFIX,
+    REQUEST_VERSION, RESPONSE_MAGIC, RESPONSE_TEXT_PREFIX, RESPONSE_TEXT_SUFFIX, RESPONSE_VERSION,
+};
+
+// Support bundle exports
+pub use support_bundle::{
+    ClockState, ClockStatusSummary, EnvironmentInfo, HardwareMatchStatus, HardwareSummary,
+    LicenseStatusSummary, RuntimeEnvironmentSummary, StateFileLocation, StateFileLocationStatus,
+    StateFileSummary, SupportBundle, SupportBundleBuilder, VerificationEvent,
+    VerificationEventType, BUNDLE_VERSION, ENCRYPTED_BUNDLE_MAGIC,
+};
+
+// Admin unlock exports
+pub use unlock::{
+    generate_challenge_from_state, get_lockout_status, validate_response_code, LockoutStatus,
+    UnlockChallenge, UnlockResult, UnlockType,
 };
 
 #[cfg(feature = "online-check")]
@@ -228,5 +256,151 @@ mod tests {
 
         assert_eq!(validated.customer_id, "Guard Customer");
         assert!(validated.has_feature("test_feature"));
+    }
+
+    #[test]
+    fn test_crypto_workflow_ed25519() {
+        // Generate Ed25519 keys using the new crypto module
+        let keypair = CryptoKeyPair::generate(algorithm_ids::ED25519).unwrap();
+
+        // Create generator using the new CryptoGenerator
+        let generator = CryptoGenerator::from_keypair(&keypair);
+
+        // Create license
+        let data = LicenseData::builder()
+            .id("ED25519-TEST")
+            .serial("SN-ED25519")
+            .customer_id("Ed25519 Customer")
+            .product_id("Ed25519 Product")
+            .valid_days(365)
+            .feature("feature1")
+            .feature("feature2")
+            .build()
+            .unwrap();
+
+        // Generate signed license
+        let signed = generator.generate(data).unwrap();
+        assert_eq!(signed.algorithm, algorithm_ids::ED25519);
+
+        // Export to binary
+        let binary = generator.export_binary(&signed).unwrap();
+
+        // Create verifier with Ed25519 public key
+        let mut keys = std::collections::HashMap::new();
+        keys.insert(
+            algorithm_ids::ED25519.to_string(),
+            keypair.public_key_pem.clone(),
+        );
+        let verifier = CryptoVerifier::new(keys);
+
+        // Parse and validate
+        let parsed = verifier.parse_license(&binary).unwrap();
+        assert!(verifier.validate(&parsed).is_ok());
+
+        // Verify features
+        assert!(parsed.data.has_feature("feature1"));
+        assert!(parsed.data.has_feature("FEATURE2")); // Case insensitive
+    }
+
+    #[test]
+    fn test_crypto_workflow_multi_algorithm() {
+        // Test that a system can handle licenses from multiple algorithms
+
+        // Generate keys for both algorithms
+        let rsa_keypair = CryptoKeyPair::generate(algorithm_ids::RSA_SHA256).unwrap();
+        let ed25519_keypair = CryptoKeyPair::generate(algorithm_ids::ED25519).unwrap();
+
+        // Create a verifier that supports both
+        let mut keys = std::collections::HashMap::new();
+        keys.insert(
+            algorithm_ids::RSA_SHA256.to_string(),
+            rsa_keypair.public_key_pem.clone(),
+        );
+        keys.insert(
+            algorithm_ids::ED25519.to_string(),
+            ed25519_keypair.public_key_pem.clone(),
+        );
+        let verifier = CryptoVerifier::new(keys);
+
+        // Generate RSA license (legacy customer)
+        let rsa_generator = CryptoGenerator::from_keypair(&rsa_keypair);
+        let rsa_data = LicenseData::builder()
+            .id("RSA-LEGACY-001")
+            .serial("SN-RSA-LEGACY")
+            .customer_id("Legacy RSA Customer")
+            .product_id("PROD-001")
+            .valid_days(365)
+            .build()
+            .unwrap();
+        let rsa_license = rsa_generator.generate(rsa_data).unwrap();
+
+        // Generate Ed25519 license (new customer)
+        let ed25519_generator = CryptoGenerator::from_keypair(&ed25519_keypair);
+        let ed25519_data = LicenseData::builder()
+            .id("ED25519-NEW-001")
+            .serial("SN-ED25519-NEW")
+            .customer_id("New Ed25519 Customer")
+            .product_id("PROD-001")
+            .valid_days(365)
+            .build()
+            .unwrap();
+        let ed25519_license = ed25519_generator.generate(ed25519_data).unwrap();
+
+        // Both licenses should validate with the same verifier
+        assert!(verifier.validate(&rsa_license).is_ok());
+        assert!(verifier.validate(&ed25519_license).is_ok());
+
+        // Algorithm should be correctly identified
+        assert_eq!(rsa_license.algorithm, algorithm_ids::RSA_SHA256);
+        assert_eq!(ed25519_license.algorithm, algorithm_ids::ED25519);
+    }
+
+    #[test]
+    fn test_backward_compatibility_rsa() {
+        // Ensure the legacy API still works for RSA
+        let keypair = KeyPair::generate(KeySize::Bits2048).unwrap();
+        let generator = LicenseGenerator::new(keypair.private_key.clone());
+        let verifier = LicenseVerifier::new(keypair.public_key);
+
+        let data = LicenseData::builder()
+            .id("LEGACY-RSA-TEST")
+            .serial("SN-LEGACY-RSA")
+            .customer_id("Legacy Customer")
+            .product_id("Legacy Product")
+            .valid_days(365)
+            .build()
+            .unwrap();
+
+        let signed = generator.generate(data).unwrap();
+
+        // Should use RSA-SHA256
+        assert_eq!(signed.algorithm, "RSA-SHA256");
+
+        // Legacy verifier should still work
+        assert!(verifier.validate(&signed).is_ok());
+
+        // Binary round-trip should work
+        let binary = generator.export_binary(&signed).unwrap();
+        let parsed = verifier.parse_license(&binary).unwrap();
+        assert!(verifier.validate(&parsed).is_ok());
+    }
+
+    #[test]
+    fn test_algorithm_registry() {
+        // Verify the algorithm registry works correctly
+        let supported = CryptoRegistry::supported_signature_algorithms();
+        assert!(supported.contains(&algorithm_ids::RSA_SHA256));
+        assert!(supported.contains(&algorithm_ids::ED25519));
+
+        // Get algorithms by ID
+        let rsa = CryptoRegistry::get_signature_algorithm(algorithm_ids::RSA_SHA256).unwrap();
+        assert_eq!(rsa.algorithm_id(), algorithm_ids::RSA_SHA256);
+
+        let ed25519 = CryptoRegistry::get_signature_algorithm(algorithm_ids::ED25519).unwrap();
+        assert_eq!(ed25519.algorithm_id(), algorithm_ids::ED25519);
+
+        // Default should be RSA for backward compatibility
+        let default = CryptoRegistry::default_signature_algorithm();
+        assert_eq!(default.algorithm_id(), algorithm_ids::RSA_SHA256);
     }
 }
