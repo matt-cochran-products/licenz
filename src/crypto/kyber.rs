@@ -274,7 +274,7 @@ pub mod sizes {
 /// * `public_key_pem` - The recipient's Kyber768 public key
 ///
 /// # Returns
-/// Encrypted data in format: [ciphertext_len (4 bytes)] || [kyber_ciphertext] || [aes_encrypted_data]
+/// Encrypted data in format: `[ciphertext_len (4 bytes)] || [kyber_ciphertext] || [aes_encrypted_data]`
 pub fn encrypt_with_kyber(data: &[u8], public_key_pem: &str) -> Result<Vec<u8>> {
     use aes_gcm::{
         aead::{Aead, KeyInit},
