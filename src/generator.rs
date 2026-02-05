@@ -466,8 +466,16 @@ mod tests {
             assert_eq!(&binary[0..4], BINARY_MAGIC);
             assert_eq!(binary[4], BINARY_VERSION);
 
-            // Binary should be larger due to PQ signature
-            assert!(binary.len() > 5000);
+            // Binary should be larger due to PQ signature (~3293 bytes signature + overhead)
+            // Dilithium3 signature: 3293 bytes, base64 encoded: ~4412 chars
+            // License data + JSON overhead: ~350 bytes
+            // Total expected: ~4700+ bytes
+            assert!(
+                binary.len() > 4500,
+                "Expected binary > 4500 bytes, got {} bytes. Signature len: {}",
+                binary.len(),
+                signed.signature.len()
+            );
         }
     }
 }
