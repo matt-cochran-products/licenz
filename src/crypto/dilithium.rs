@@ -28,6 +28,9 @@ const DILITHIUM3_PRIVATE_KEY_TAG: &str = "DILITHIUM3 PRIVATE KEY";
 const DILITHIUM3_PUBLIC_KEY_TAG: &str = "DILITHIUM3 PUBLIC KEY";
 
 /// Dilithium3 signature algorithm implementation
+///
+/// Private key format: `[sk_len (4 bytes LE)] || [secret_key] || [public_key]`
+/// This combined format allows reliable public key extraction.
 pub struct Dilithium3Signer;
 
 impl Default for Dilithium3Signer {
@@ -43,6 +46,7 @@ impl Dilithium3Signer {
     }
 
     /// Parse a Dilithium3 private key from PEM format
+    /// Supports both combined format (sk + pk) and legacy format (sk only)
     fn parse_private_key(pem_str: &str) -> Result<dilithium3::SecretKey> {
         // Handle escaped newlines
         let pem_str = pem_str.replace("\\n", "\n");
@@ -59,7 +63,25 @@ impl Dilithium3Signer {
             )));
         }
 
-        dilithium3::SecretKey::from_bytes(pem.contents()).map_err(|e| {
+        let contents = pem.contents();
+        let sk_len = dilithium3::secret_key_bytes();
+        let pk_len = dilithium3::public_key_bytes();
+        let combined_len = 4 + sk_len + pk_len;
+
+        // Check if this is the combined format (has length prefix)
+        if contents.len() == combined_len && contents.len() >= 4 {
+            let stored_sk_len = u32::from_le_bytes([contents[0], contents[1], contents[2], contents[3]]) as usize;
+            if stored_sk_len == sk_len {
+                // Combined format: extract just the secret key
+                let sk_bytes = &contents[4..4 + sk_len];
+                return dilithium3::SecretKey::from_bytes(sk_bytes).map_err(|e| {
+                    LicenseError::InvalidKeyFormat(format!("Invalid Dilithium3 private key: {:?}", e))
+                });
+            }
+        }
+
+        // Legacy format: just the secret key bytes
+        dilithium3::SecretKey::from_bytes(contents).map_err(|e| {
             LicenseError::InvalidKeyFormat(format!("Invalid Dilithium3 private key: {:?}", e))
         })
     }
@@ -86,16 +108,61 @@ impl Dilithium3Signer {
         })
     }
 
-    /// Encode a private key to PEM format
-    fn encode_private_key(secret_key: &dilithium3::SecretKey) -> String {
-        let bytes = secret_key.as_bytes();
-        encode(&Pem::new(DILITHIUM3_PRIVATE_KEY_TAG, bytes))
+    /// Encode a private key to PEM format (combined format with public key)
+    fn encode_private_key(secret_key: &dilithium3::SecretKey, public_key: &dilithium3::PublicKey) -> String {
+        let sk_bytes = secret_key.as_bytes();
+        let pk_bytes = public_key.as_bytes();
+
+        // Combined format: [sk_len (4 bytes LE)] || [secret_key] || [public_key]
+        let mut combined = Vec::with_capacity(4 + sk_bytes.len() + pk_bytes.len());
+        combined.extend_from_slice(&(sk_bytes.len() as u32).to_le_bytes());
+        combined.extend_from_slice(sk_bytes);
+        combined.extend_from_slice(pk_bytes);
+
+        encode(&Pem::new(DILITHIUM3_PRIVATE_KEY_TAG, combined))
     }
 
     /// Encode a public key to PEM format
     fn encode_public_key(public_key: &dilithium3::PublicKey) -> String {
         let bytes = public_key.as_bytes();
         encode(&Pem::new(DILITHIUM3_PUBLIC_KEY_TAG, bytes))
+    }
+
+    /// Extract public key bytes from combined private key PEM
+    fn extract_public_key_bytes(pem_str: &str) -> Result<Vec<u8>> {
+        let pem_str = pem_str.replace("\\n", "\n");
+
+        let pem = parse(&pem_str).map_err(|e| {
+            LicenseError::InvalidKeyFormat(format!("Failed to parse Dilithium3 PEM: {}", e))
+        })?;
+
+        if pem.tag() != DILITHIUM3_PRIVATE_KEY_TAG {
+            return Err(LicenseError::InvalidKeyFormat(format!(
+                "Expected PEM tag '{}', got '{}'",
+                DILITHIUM3_PRIVATE_KEY_TAG,
+                pem.tag()
+            )));
+        }
+
+        let contents = pem.contents();
+        let sk_len = dilithium3::secret_key_bytes();
+        let pk_len = dilithium3::public_key_bytes();
+        let combined_len = 4 + sk_len + pk_len;
+
+        // Check if this is the combined format
+        if contents.len() == combined_len && contents.len() >= 4 {
+            let stored_sk_len = u32::from_le_bytes([contents[0], contents[1], contents[2], contents[3]]) as usize;
+            if stored_sk_len == sk_len {
+                // Combined format: extract the public key
+                let pk_bytes = &contents[4 + sk_len..];
+                return Ok(pk_bytes.to_vec());
+            }
+        }
+
+        // Legacy format: cannot extract public key
+        Err(LicenseError::InvalidKeyFormat(
+            "Cannot extract public key from legacy private key format. Please regenerate the keypair.".to_string()
+        ))
     }
 }
 
@@ -128,35 +195,19 @@ impl SignatureAlgorithm for Dilithium3Signer {
     fn generate_keypair(&self) -> Result<(String, String)> {
         let (public_key, secret_key) = dilithium3::keypair();
 
-        let private_pem = Self::encode_private_key(&secret_key);
+        // Use combined format that includes public key in private key PEM
+        let private_pem = Self::encode_private_key(&secret_key, &public_key);
         let public_pem = Self::encode_public_key(&public_key);
 
         Ok((private_pem, public_pem))
     }
 
     fn extract_public_key(&self, private_key_pem: &str) -> Result<String> {
-        // Dilithium3 doesn't have a direct way to extract public key from private key
-        // The private key in pqcrypto-dilithium includes the public key bytes
-        // We need to extract them from the secret key bytes
-        let secret_key = Self::parse_private_key(private_key_pem)?;
-
-        // The Dilithium3 secret key format includes the public key
-        // pqcrypto-dilithium secret key = (rho || K || tr || s1 || s2 || t0 || pk)
-        // where pk is the public key at the end
-        let sk_bytes = secret_key.as_bytes();
-        let pk_len = dilithium3::public_key_bytes();
-
-        if sk_bytes.len() < pk_len {
-            return Err(LicenseError::InvalidKeyFormat(
-                "Secret key too short to contain public key".to_string(),
-            ));
-        }
-
-        // Extract the public key from the end of the secret key
-        let pk_bytes = &sk_bytes[sk_bytes.len() - pk_len..];
-        let public_key = dilithium3::PublicKey::from_bytes(pk_bytes).map_err(|e| {
+        // Extract public key from the combined private key format
+        let pk_bytes = Self::extract_public_key_bytes(private_key_pem)?;
+        let public_key = dilithium3::PublicKey::from_bytes(&pk_bytes).map_err(|e| {
             LicenseError::InvalidKeyFormat(format!(
-                "Failed to extract public key from secret key: {:?}",
+                "Failed to parse extracted public key: {:?}",
                 e
             ))
         })?;
