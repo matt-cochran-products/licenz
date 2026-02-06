@@ -145,17 +145,15 @@ fn main() -> anyhow::Result<()> {
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `hardware-binding` | Hardware detection (MAC, hostname, disk) | Yes |
-| `verify-only` | Minimal build, verification only | |
-| `generate` | Include license generation | |
-| `online-check` | Online revocation checking | |
+| `cloud-metadata` | Cloud container detection (AWS, GCP, Azure) | |
+| `post-quantum` | Post-quantum cryptography (Dilithium3, Kyber768) | |
 
 ```toml
-# Minimal client (verification only)
-licenz-core = { version = "0.1", default-features = false, features = ["verify-only"] }
+# Standard usage (includes hardware binding, online validation, all crypto)
+licenz-core = "0.1"
 
-# Full server (generation + verification)
-licenz-core = { version = "0.1", features = ["generate"] }
+# With post-quantum cryptography
+licenz-core = { version = "0.1", features = ["post-quantum"] }
 ```
 
 ## Security Model

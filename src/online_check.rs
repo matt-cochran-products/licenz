@@ -6,7 +6,7 @@
 //! - License sync reporting
 //! - Server-side validation
 //!
-//! This module is only available when the `online-check` feature is enabled.
+//! Configure via `OnlineCheckConfig` - if no server URL is set, online checks are skipped.
 //!
 //! # Example
 //!

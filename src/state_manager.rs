@@ -54,9 +54,6 @@ impl StateObservations {
 pub struct StateManager {
     /// Primary storage paths (filesystem)
     paths: Vec<PathBuf>,
-    /// License ID hash for file naming
-    #[allow(dead_code)]
-    license_hash: String,
 }
 
 impl StateManager {
@@ -70,41 +67,35 @@ impl StateManager {
         if let Some(data_dir) = dirs_next::data_local_dir() {
             paths.push(
                 data_dir
-                    .join(".ferrite")
+                    .join(".licenz")
                     .join(format!("{}.state", &license_hash)),
             );
         }
 
         // Secondary: Hidden file in home directory
         if let Some(home_dir) = dirs_next::home_dir() {
-            paths.push(home_dir.join(format!(".flic_{}", &license_hash[..12])));
+            paths.push(home_dir.join(format!(".lz_{}", &license_hash[..12])));
         }
 
         // Tertiary: Temp directory with obfuscated name
         let temp_dir = std::env::temp_dir();
-        paths.push(temp_dir.join(format!("frt_{}.dat", &license_hash[..16])));
+        paths.push(temp_dir.join(format!("lzs_{}.dat", &license_hash[..16])));
 
         // Quaternary: Config directory
         if let Some(config_dir) = dirs_next::config_dir() {
             paths.push(
                 config_dir
-                    .join("ferrite")
+                    .join("licenz")
                     .join(format!("{}.dat", &license_hash[..8])),
             );
         }
 
-        Self {
-            paths,
-            license_hash,
-        }
+        Self { paths }
     }
 
     /// Create with custom paths (for testing)
-    pub fn with_paths(license_id: &str, paths: Vec<PathBuf>) -> Self {
-        Self {
-            paths,
-            license_hash: sha256_short(license_id),
-        }
+    pub fn with_paths(_license_id: &str, paths: Vec<PathBuf>) -> Self {
+        Self { paths }
     }
 
     /// Load the most recent valid state from any location.

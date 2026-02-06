@@ -91,10 +91,8 @@
 //!
 //! ## Feature Flags
 //!
-//! - `hardware-binding` (default): Enable hardware detection for license binding
-//! - `verify-only`: Include only verification code (smaller binary for client apps)
-//! - `generate`: Include license generation code (for server/admin apps)
-//! - `online-check`: Enable online license validation (revocation check, sync)
+//! - `cloud-metadata`: Enable cloud container detection (AWS, GCP, Azure)
+//! - `post-quantum`: Enable post-quantum cryptography (Dilithium3, Kyber768)
 
 pub mod anti_tamper;
 pub mod container;
@@ -113,7 +111,6 @@ pub mod unlock;
 pub mod verifier;
 pub mod witness;
 
-#[cfg(feature = "online-check")]
 pub mod online_check;
 
 // Re-export main types
@@ -162,7 +159,6 @@ pub use unlock::{
     UnlockChallenge, UnlockResult, UnlockType,
 };
 
-#[cfg(feature = "online-check")]
 pub use online_check::{
     check_revocation, check_revocation_batch, check_revocation_by_serial, sync_report,
     OnlineCheckConfig, RevocationCheckResult, RevocationStatus, SyncReport, SyncResponse,
@@ -171,13 +167,14 @@ pub use online_check::{
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Create a public key variable that can be set at compile time
+/// Get a public key embedded at compile time via environment variable.
 ///
 /// Use this with cargo build flags:
 /// ```bash
 /// LICENZ_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\n..." cargo build
 /// ```
-#[cfg(feature = "verify-only")]
+///
+/// Returns `None` if `LICENZ_PUBLIC_KEY` was not set during compilation.
 pub fn embedded_public_key() -> Option<&'static str> {
     option_env!("LICENZ_PUBLIC_KEY")
 }

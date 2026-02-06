@@ -277,7 +277,6 @@ impl ActivationRequestBuilder {
     }
 
     /// Set the hardware fingerprint from the current machine
-    #[cfg(feature = "hardware-binding")]
     pub fn fingerprint_current(mut self) -> Self {
         self.fingerprint = Some(HardwareFingerprint::generate());
         self

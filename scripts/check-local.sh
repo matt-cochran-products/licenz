@@ -134,19 +134,7 @@ else
 fi
 
 # =============================================================================
-# CHECK 5: Minimal Feature Build (skip in fast mode)
-# =============================================================================
-if [ "$FAST_MODE" = false ]; then
-    check_step "Minimal Feature Build (no default features)"
-    if cargo build -p licenz-core --no-default-features; then
-        check_pass
-    else
-        check_fail "Minimal build failed"
-    fi
-fi
-
-# =============================================================================
-# CHECK 6: Documentation
+# CHECK 5: Documentation
 # =============================================================================
 check_step "Cargo Doc (documentation check)"
 if RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features 2>&1; then

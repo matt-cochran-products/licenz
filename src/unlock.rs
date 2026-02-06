@@ -417,18 +417,18 @@ fn get_state_paths(state_dir: Option<&Path>) -> Vec<PathBuf> {
         let mut paths = Vec::new();
 
         if let Some(data_dir) = dirs_next::data_local_dir() {
-            paths.push(data_dir.join(".ferrite").join("*.state"));
+            paths.push(data_dir.join(".licenz").join("*.state"));
         }
 
         if let Some(home_dir) = dirs_next::home_dir() {
-            paths.push(home_dir.join(".flic_*"));
+            paths.push(home_dir.join(".lz_*"));
         }
 
         let temp_dir = std::env::temp_dir();
-        paths.push(temp_dir.join("frt_*.dat"));
+        paths.push(temp_dir.join("lzs_*.dat"));
 
         if let Some(config_dir) = dirs_next::config_dir() {
-            paths.push(config_dir.join("ferrite").join("*.dat"));
+            paths.push(config_dir.join("licenz").join("*.dat"));
         }
 
         // Expand globs (simplified - in production use glob crate)
