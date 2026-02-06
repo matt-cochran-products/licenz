@@ -70,12 +70,16 @@ impl Dilithium3Signer {
 
         // Check if this is the combined format (has length prefix)
         if contents.len() == combined_len && contents.len() >= 4 {
-            let stored_sk_len = u32::from_le_bytes([contents[0], contents[1], contents[2], contents[3]]) as usize;
+            let stored_sk_len =
+                u32::from_le_bytes([contents[0], contents[1], contents[2], contents[3]]) as usize;
             if stored_sk_len == sk_len {
                 // Combined format: extract just the secret key
                 let sk_bytes = &contents[4..4 + sk_len];
                 return dilithium3::SecretKey::from_bytes(sk_bytes).map_err(|e| {
-                    LicenseError::InvalidKeyFormat(format!("Invalid Dilithium3 private key: {:?}", e))
+                    LicenseError::InvalidKeyFormat(format!(
+                        "Invalid Dilithium3 private key: {:?}",
+                        e
+                    ))
                 });
             }
         }
@@ -109,7 +113,10 @@ impl Dilithium3Signer {
     }
 
     /// Encode a private key to PEM format (combined format with public key)
-    fn encode_private_key(secret_key: &dilithium3::SecretKey, public_key: &dilithium3::PublicKey) -> String {
+    fn encode_private_key(
+        secret_key: &dilithium3::SecretKey,
+        public_key: &dilithium3::PublicKey,
+    ) -> String {
         let sk_bytes = secret_key.as_bytes();
         let pk_bytes = public_key.as_bytes();
 
@@ -151,7 +158,8 @@ impl Dilithium3Signer {
 
         // Check if this is the combined format
         if contents.len() == combined_len && contents.len() >= 4 {
-            let stored_sk_len = u32::from_le_bytes([contents[0], contents[1], contents[2], contents[3]]) as usize;
+            let stored_sk_len =
+                u32::from_le_bytes([contents[0], contents[1], contents[2], contents[3]]) as usize;
             if stored_sk_len == sk_len {
                 // Combined format: extract the public key
                 let pk_bytes = &contents[4 + sk_len..];
@@ -206,10 +214,7 @@ impl SignatureAlgorithm for Dilithium3Signer {
         // Extract public key from the combined private key format
         let pk_bytes = Self::extract_public_key_bytes(private_key_pem)?;
         let public_key = dilithium3::PublicKey::from_bytes(&pk_bytes).map_err(|e| {
-            LicenseError::InvalidKeyFormat(format!(
-                "Failed to parse extracted public key: {:?}",
-                e
-            ))
+            LicenseError::InvalidKeyFormat(format!("Failed to parse extracted public key: {:?}", e))
         })?;
 
         Ok(Self::encode_public_key(&public_key))
