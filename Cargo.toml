@@ -11,15 +11,12 @@ keywords = ["license", "licensing", "offline", "cryptography", "verification"]
 categories = ["authentication", "cryptography"]
 
 [features]
-default = ["hardware-binding"]
-hardware-binding = ["dep:sysinfo", "dep:mac_address", "dep:hostname"]
+default = []
+# Cloud container detection (AWS, GCP, Azure instance IDs)
 cloud-metadata = ["dep:url"]
-# For client apps that only need verification (smaller binary)
-verify-only = []
-# For server/admin apps that need generation capabilities
-generate = []
-# For online license validation (revocation check, sync)
-online-check = ["dep:reqwest"]
+# Post-quantum cryptography support (Dilithium3, Kyber768, hybrid modes)
+# Note: Significantly increases binary size (~2MB) but provides quantum resistance
+post-quantum = ["dep:pqcrypto-dilithium", "dep:pqcrypto-kyber", "dep:pqcrypto-traits"]
 
 [dependencies]
 rsa = "0.9"
@@ -37,17 +34,23 @@ hex = "0.4"
 tracing = "0.1"
 dirs-next = "2"
 aes-gcm = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 
-# Optional hardware detection
-sysinfo = { version = "0.30", optional = true }
-mac_address = { version = "1", optional = true }
-hostname = { version = "0.3", optional = true }
+# Hardware detection (always enabled - core feature)
+sysinfo = "0.30"
+mac_address = "1"
+hostname = "0.3"
 
-# Optional online validation
-reqwest = { version = "0.12", features = ["json", "blocking"], optional = true }
+# Online validation (always available, use via configuration)
+reqwest = { version = "0.12", features = ["json", "blocking"] }
 
 # Optional URL parsing for cloud metadata
 url = { version = "2", optional = true }
+
+# Optional post-quantum cryptography
+pqcrypto-dilithium = { version = "0.5", optional = true }
+pqcrypto-kyber = { version = "0.8", optional = true }
+pqcrypto-traits = { version = "0.3", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

@@ -49,7 +49,6 @@ impl HardwareInfo {
 }
 
 /// Detect hardware information from the current machine
-#[cfg(feature = "hardware-binding")]
 pub fn detect_hardware() -> HardwareInfo {
     HardwareInfo {
         mac_addresses: detect_mac_addresses(),
@@ -59,13 +58,7 @@ pub fn detect_hardware() -> HardwareInfo {
     }
 }
 
-#[cfg(not(feature = "hardware-binding"))]
-pub fn detect_hardware() -> HardwareInfo {
-    HardwareInfo::default()
-}
-
 /// Detect all MAC addresses on the system
-#[cfg(feature = "hardware-binding")]
 fn detect_mac_addresses() -> Vec<String> {
     let mut macs = Vec::new();
 
@@ -99,13 +92,7 @@ fn detect_mac_addresses() -> Vec<String> {
     macs
 }
 
-#[cfg(not(feature = "hardware-binding"))]
-fn detect_mac_addresses() -> Vec<String> {
-    Vec::new()
-}
-
 /// Detect the system hostname
-#[cfg(feature = "hardware-binding")]
 fn detect_hostname() -> Option<String> {
     hostname::get()
         .ok()
@@ -113,13 +100,7 @@ fn detect_hostname() -> Option<String> {
         .map(|s| s.to_lowercase())
 }
 
-#[cfg(not(feature = "hardware-binding"))]
-fn detect_hostname() -> Option<String> {
-    None
-}
-
 /// Detect disk serial numbers
-#[cfg(feature = "hardware-binding")]
 fn detect_disk_ids() -> Vec<String> {
     let mut disk_ids = Vec::new();
 
@@ -153,13 +134,7 @@ fn detect_disk_ids() -> Vec<String> {
     disk_ids
 }
 
-#[cfg(not(feature = "hardware-binding"))]
-fn detect_disk_ids() -> Vec<String> {
-    Vec::new()
-}
-
 /// Detect machine ID (platform-specific)
-#[cfg(feature = "hardware-binding")]
 fn detect_machine_id() -> Option<String> {
     // Linux: /etc/machine-id
     #[cfg(target_os = "linux")]
@@ -213,11 +188,6 @@ fn detect_machine_id() -> Option<String> {
         }
     }
 
-    None
-}
-
-#[cfg(not(feature = "hardware-binding"))]
-fn detect_machine_id() -> Option<String> {
     None
 }
 

@@ -134,7 +134,7 @@ impl LicenseState {
 }
 
 /// Result of clock manipulation check
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClockStatus {
     /// Clock is within acceptable range
     Ok { current: DateTime<Utc> },
@@ -181,7 +181,6 @@ pub struct HardwareFingerprint {
 
 impl HardwareFingerprint {
     /// Generate fingerprint from current hardware
-    #[cfg(feature = "hardware-binding")]
     pub fn generate() -> Self {
         use crate::hardware::detect_hardware;
 
@@ -218,11 +217,6 @@ impl HardwareFingerprint {
             machine_guid_hash,
             combined_hash,
         }
-    }
-
-    #[cfg(not(feature = "hardware-binding"))]
-    pub fn generate() -> Self {
-        Self::default()
     }
 
     /// Calculate match score against a binding
