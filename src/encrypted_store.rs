@@ -72,7 +72,7 @@ impl EncryptedKeyStore {
 
     /// Save the encrypted key store to a file
     pub fn save(&self, path: &Path) -> Result<()> {
-        let data = bincode::serialize(self)
+        let data = bincode::serde::encode_to_vec(self, bincode::config::standard())
             .map_err(|e| LicenseError::SerializationError(e.to_string()))?;
 
         std::fs::write(path, data)?;
@@ -91,7 +91,9 @@ impl EncryptedKeyStore {
     /// Load an encrypted key store from a file
     pub fn load(path: &Path) -> Result<Self> {
         let data = std::fs::read(path)?;
-        bincode::deserialize(&data).map_err(|e| LicenseError::InvalidKeyFormat(e.to_string()))
+        let (store, _len) = bincode::serde::decode_from_slice(&data, bincode::config::standard())
+            .map_err(|e| LicenseError::InvalidKeyFormat(e.to_string()))?;
+        Ok(store)
     }
 
     /// Create an encrypted backup of a private key file
