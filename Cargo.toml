@@ -1,0 +1,67 @@
+[package]
+name = "licenz-core"
+version = "0.2.0"
+authors = ["Matthew Cochran <matthew@cochranweb.com>"]
+edition = "2021"
+rust-version = "1.89"
+license = "MIT"
+description = "Offline software license verification with RSA signatures, hardware binding, and anti-tamper detection"
+readme = "README.md"
+repository = "https://github.com/matt-cochran/licenz"
+homepage = "https://licenz.dev"
+keywords = ["license", "licensing", "offline", "cryptography", "verification"]
+categories = ["authentication", "cryptography"]
+exclude = ["build.rs", ".git-hooks/"]
+
+[features]
+default = ["hardware-detect"]
+# Online revocation checking and license sync (reqwest + JWS verification)
+online-check = ["dep:reqwest", "dep:jsonwebtoken"]
+# Hardware detection via OS probes (MAC, disk IDs, hostname, machine ID)
+hardware-detect = ["dep:sysinfo", "dep:mac_address", "dep:hostname"]
+# Cloud container detection (AWS, GCP, Azure instance IDs)
+cloud-metadata = ["dep:url"]
+# Post-quantum cryptography support (ML-DSA-65, ML-KEM-768, hybrid modes)
+# Note: Significantly increases binary size but provides quantum resistance
+post-quantum = ["dep:ml-dsa", "dep:ml-kem", "dep:getrandom"]
+
+[dependencies]
+rsa = "0.9"
+sha2 = { version = "0.10", features = ["oid"] }
+rand = "0.8"
+base64 = "0.22"
+pem = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = { version = "2", features = ["serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+hex = "0.4"
+tracing = "0.1"
+dirs-next = "2"
+aes-gcm = "0.10"
+argon2 = "0.5"
+ed25519-dalek = { version = "2", features = ["rand_core", "pkcs8", "pem"] }
+hmac = "0.12"
+zeroize = { version = "1", features = ["derive"] }
+
+# Optional hardware detection
+sysinfo = { version = "0.38", optional = true }
+mac_address = { version = "1", optional = true }
+hostname = { version = "0.4", optional = true }
+
+# Optional online validation
+reqwest = { version = "0.13", optional = true, features = ["json", "blocking"] }
+jsonwebtoken = { version = "9", optional = true, default-features = false, features = ["use_pem"] }
+
+# Optional URL parsing for cloud metadata
+url = { version = "2", optional = true }
+
+# Optional post-quantum cryptography (FIPS 204 / FIPS 203)
+ml-dsa = { version = "=0.1.0-rc.8", optional = true }
+ml-kem = { version = "=0.3.0-rc.2", optional = true, features = ["getrandom"] }
+getrandom = { version = "0.4", optional = true, features = ["sys_rng"] }
+
+[dev-dependencies]
+tempfile = "3"

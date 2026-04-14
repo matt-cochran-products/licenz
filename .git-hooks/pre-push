@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Pre-push hook - Runs full CI checks before allowing push
+#
+# To install:
+#   git config core.hooksPath .git-hooks
+#
+# To bypass (emergencies only):
+#   git push --no-verify
+
+set -euo pipefail
+
+echo "Running full CI checks before push..."
+echo ""
+
+# Detect if we're in Windows Git Bash and cargo isn't available
+# If so, try to run checks via WSL
+if [ -n "${USERPROFILE:-}" ] && ! command -v cargo &> /dev/null; then
+    # We're in Windows Git Bash and cargo isn't in PATH
+    # Try to run via WSL if available
+    if command -v wsl.exe &> /dev/null; then
+        echo "Cargo not found in Windows PATH. Running checks via WSL..."
+        echo ""
+
+        # Get the Windows path and convert to WSL path
+        WIN_PWD=$(pwd -W 2>/dev/null || pwd)
+        WSL_PATH=$(echo "$WIN_PWD" | sed 's|^\([A-Za-z]\):|/mnt/\1|' | tr '\\' '/' | tr '[:upper:]' '[:lower:]')
+
+        # Run the full check script in WSL (source cargo env first for non-login shell)
+        wsl.exe bash -c "source \"\$HOME/.cargo/env\" 2>/dev/null; cd '$WSL_PATH' && ./scripts/check-local.sh"
+        EXIT_CODE=$?
+    else
+        echo "ERROR: Cargo not found and WSL is not available."
+        echo ""
+        echo "Please either:"
+        echo "  1. Install Rust in Windows: https://rustup.rs/"
+        echo "  2. Or run checks manually in WSL before pushing"
+        echo ""
+        exit 1
+    fi
+else
+    # Normal case: cargo is available or we're in Linux/WSL
+    ./scripts/check-local.sh
+    EXIT_CODE=$?
+fi
+
+if [ $EXIT_CODE -eq 0 ]; then
+    echo ""
+    echo "Full CI checks passed. Proceeding with push."
+    exit 0
+else
+    echo ""
+    echo "Full CI checks failed!"
+    echo ""
+    echo "Your push would fail CI/CD. Please fix the issues before pushing."
+    echo ""
+    echo "Quick fixes:"
+    echo "  ./scripts/check-local.sh --fix    # Auto-fix what can be fixed"
+    echo "  cargo clippy --fix                # Fix clippy issues"
+    echo "  cargo fmt                         # Format code"
+    echo ""
+    echo "To bypass this check (NOT RECOMMENDED):"
+    echo "  git push --no-verify"
+    echo ""
+    exit 1
+fi

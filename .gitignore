@@ -1,0 +1,31 @@
+# Build artifacts
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+.claude/
+.cursor/
+*.swp
+*.swo
+
+# Keys (don't commit these!)
+/keys/
+*.pem
+
+# License files (for testing)
+*.lic
+license.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/
