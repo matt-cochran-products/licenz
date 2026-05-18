@@ -34,6 +34,9 @@ use sha2::Sha256;
 use std::path::Path;
 use std::sync::Arc;
 
+/// Maximum license file size (1 MiB). No legitimate license should exceed this.
+pub const MAX_LICENSE_FILE_SIZE: u64 = 1024 * 1024;
+
 /// License verifier for validating licenses
 #[derive(Clone)]
 pub struct LicenseVerifier {
@@ -80,7 +83,7 @@ impl LicenseVerifier {
 
     /// Load a license from a file (auto-detects format)
     pub fn load_license(&self, path: &Path) -> Result<SignedLicense> {
-        let bytes = std::fs::read(path)?;
+        let bytes = read_license_file(path)?;
         self.parse_license(&bytes)
     }
 
@@ -238,6 +241,19 @@ impl LicenseVerifier {
         self.validate(&license)?;
         Ok(license)
     }
+}
+
+/// Read a license file with size-limit protection against oversized inputs.
+fn read_license_file(path: &Path) -> Result<Vec<u8>> {
+    let metadata = std::fs::metadata(path)?;
+    if metadata.len() > MAX_LICENSE_FILE_SIZE {
+        return Err(LicenseError::InvalidLicenseFormat(format!(
+            "License file exceeds maximum size of {} bytes (got {} bytes)",
+            MAX_LICENSE_FILE_SIZE,
+            metadata.len()
+        )));
+    }
+    Ok(std::fs::read(path)?)
 }
 
 /// Detect the format of a license file
@@ -449,7 +465,7 @@ impl CryptoVerifier {
 
     /// Load a license from a file (auto-detects format)
     pub fn load_license(&self, path: &Path) -> Result<SignedLicense> {
-        let bytes = std::fs::read(path)?;
+        let bytes = read_license_file(path)?;
         self.parse_license(&bytes)
     }
 
@@ -995,6 +1011,144 @@ mod tests {
         assert!(result.hardware_valid);
         assert!(result.days_remaining > 0);
         assert!(result.error.is_none());
+    }
+
+    // ========================================================================
+    // Fix: Max license file size check
+    // ========================================================================
+
+    #[test]
+    fn load_license_rejects_oversized_file() {
+        use tempfile::TempDir;
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("huge.lic");
+
+        // Write a file larger than MAX_LICENSE_FILE_SIZE
+        let oversized = vec![0u8; (MAX_LICENSE_FILE_SIZE as usize) + 1];
+        std::fs::write(&path, &oversized).unwrap();
+
+        let keypair = crate::KeyPair::generate(crate::KeySize::Bits2048).unwrap();
+        let verifier = LicenseVerifier::new(keypair.public_key.clone());
+
+        let err = verifier.load_license(&path).unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds maximum size"),
+            "error should mention size: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn crypto_verifier_load_license_rejects_oversized_file() {
+        use tempfile::TempDir;
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("huge.lic");
+
+        let oversized = vec![0u8; (MAX_LICENSE_FILE_SIZE as usize) + 1];
+        std::fs::write(&path, &oversized).unwrap();
+
+        let keypair = crate::CryptoKeyPair::generate(algorithm_ids::ED25519).unwrap();
+        let mut keys = std::collections::HashMap::new();
+        keys.insert(
+            algorithm_ids::ED25519.to_string(),
+            keypair.public_key_pem.clone(),
+        );
+        let verifier = CryptoVerifier::new(keys);
+
+        let err = verifier.load_license(&path).unwrap_err();
+        assert!(err.to_string().contains("exceeds maximum size"));
+    }
+
+    #[test]
+    fn load_license_accepts_file_at_limit() {
+        use tempfile::TempDir;
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("at_limit.lic");
+
+        // File exactly at limit should be read (will fail on parse, not on size)
+        let data = vec![b'{'; MAX_LICENSE_FILE_SIZE as usize];
+        std::fs::write(&path, &data).unwrap();
+
+        let keypair = crate::KeyPair::generate(crate::KeySize::Bits2048).unwrap();
+        let verifier = LicenseVerifier::new(keypair.public_key.clone());
+
+        // Should fail on parsing, not on file size
+        let err = verifier.load_license(&path).unwrap_err();
+        assert!(!err.to_string().contains("exceeds maximum size"));
+    }
+
+    // ========================================================================
+    // Fix: BTreeMap deterministic serialization
+    // ========================================================================
+
+    #[test]
+    fn metadata_btreemap_serializes_deterministically() {
+        let mut data1 = LicenseData::builder()
+            .id("DET-001")
+            .serial("SN-DET")
+            .customer_id("C")
+            .product_id("P")
+            .valid_days(1)
+            .build()
+            .unwrap();
+
+        // Insert multiple metadata keys
+        data1.metadata.insert("zebra".to_string(), "z".to_string());
+        data1.metadata.insert("alpha".to_string(), "a".to_string());
+        data1.metadata.insert("middle".to_string(), "m".to_string());
+
+        let bytes1 = serde_json::to_vec(&data1).unwrap();
+        let bytes2 = serde_json::to_vec(&data1).unwrap();
+
+        // Same process, same data — must be identical
+        assert_eq!(bytes1, bytes2);
+    }
+
+    #[test]
+    fn metadata_btreemap_keys_appear_in_sorted_order() {
+        let mut data = LicenseData::builder()
+            .id("DET-002")
+            .serial("SN-DET2")
+            .customer_id("C")
+            .product_id("P")
+            .valid_days(1)
+            .build()
+            .unwrap();
+
+        data.metadata.insert("zebra".to_string(), "z".to_string());
+        data.metadata.insert("alpha".to_string(), "a".to_string());
+
+        let json = serde_json::to_string(&data).unwrap();
+        let alpha_pos = json.find("\"alpha\"").unwrap();
+        let zebra_pos = json.find("\"zebra\"").unwrap();
+        assert!(alpha_pos < zebra_pos);
+    }
+
+    #[test]
+    fn license_with_metadata_round_trips_through_sign_verify() {
+        let keypair = crate::KeyPair::generate(crate::KeySize::Bits2048).unwrap();
+        let generator = crate::LicenseGenerator::new(keypair.private_key().clone());
+
+        let mut data = LicenseData::builder()
+            .id("META-001")
+            .serial("SN-META")
+            .customer_id("C")
+            .product_id("P")
+            .valid_days(365)
+            .build()
+            .unwrap();
+
+        data.metadata
+            .insert("key_z".to_string(), "val_z".to_string());
+        data.metadata
+            .insert("key_a".to_string(), "val_a".to_string());
+        data.metadata
+            .insert("key_m".to_string(), "val_m".to_string());
+
+        let signed = generator.generate(data).unwrap();
+
+        let verifier = LicenseVerifier::new(keypair.public_key.clone());
+        assert!(verifier.validate(&signed).is_ok());
     }
 
     // Post-quantum verifier tests (feature-gated)

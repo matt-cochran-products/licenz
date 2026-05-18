@@ -134,7 +134,9 @@ pub use hardware::{
 pub use keys::{parse_private_key, parse_public_key, CryptoKeyPair, KeyPair, KeySize};
 pub use license::{HardwareBinding, LicenseData, LicenseDataBuilder, LicenseFormat, SignedLicense};
 pub use state_manager::{StateManager, StateObservations};
-pub use verifier::{detect_license_format, CryptoVerifier, LicenseVerifier, ValidationResult};
+pub use verifier::{
+    detect_license_format, CryptoVerifier, LicenseVerifier, ValidationResult, MAX_LICENSE_FILE_SIZE,
+};
 
 // Cryptographic algorithm exports
 pub use crypto::{algorithm_ids, CryptoRegistry, EncryptionAlgorithm, SignatureAlgorithm};

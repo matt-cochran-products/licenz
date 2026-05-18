@@ -17,10 +17,7 @@
 
 use super::SignatureAlgorithm;
 use crate::error::{LicenseError, Result};
-use ml_dsa::{
-    signature::{Keypair, Signer, Verifier},
-    KeyGen, MlDsa65, Signature, SigningKey, VerifyingKey,
-};
+use ml_dsa::{Generate, Keypair, MlDsa65, Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use pem::{encode, parse, Pem};
 
 /// PEM tag for ML-DSA-65 private keys
@@ -70,7 +67,7 @@ impl MlDsa65Signer {
             ))
         })?;
 
-        Ok(MlDsa65::from_seed(seed_bytes))
+        Ok(SigningKey::<MlDsa65>::from_seed(seed_bytes))
     }
 
     /// Parse an ML-DSA-65 public key from PEM format
@@ -142,10 +139,10 @@ impl SignatureAlgorithm for MlDsa65Signer {
 
     fn generate_keypair(&self) -> Result<(String, String)> {
         let mut rng = getrandom::rand_core::UnwrapErr(getrandom::SysRng);
-        let keypair = MlDsa65::key_gen(&mut rng);
+        let signing_key = SigningKey::<MlDsa65>::generate_from_rng(&mut rng);
 
-        let private_pem = Self::encode_private_key(&keypair);
-        let public_pem = Self::encode_public_key(&keypair.verifying_key());
+        let private_pem = Self::encode_private_key(&signing_key);
+        let public_pem = Self::encode_public_key(&signing_key.verifying_key());
 
         Ok((private_pem, public_pem))
     }
