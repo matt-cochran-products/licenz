@@ -1095,9 +1095,7 @@ mod tests {
         // Insert multiple metadata keys
         data1.metadata.insert("zebra".to_string(), "z".to_string());
         data1.metadata.insert("alpha".to_string(), "a".to_string());
-        data1
-            .metadata
-            .insert("middle".to_string(), "m".to_string());
+        data1.metadata.insert("middle".to_string(), "m".to_string());
 
         let bytes1 = serde_json::to_vec(&data1).unwrap();
         let bytes2 = serde_json::to_vec(&data1).unwrap();
@@ -1140,7 +1138,8 @@ mod tests {
             .build()
             .unwrap();
 
-        data.metadata.insert("key_z".to_string(), "val_z".to_string());
+        data.metadata
+            .insert("key_z".to_string(), "val_z".to_string());
         data.metadata
             .insert("key_a".to_string(), "val_a".to_string());
         data.metadata

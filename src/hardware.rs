@@ -94,9 +94,7 @@ impl HardwareInfo {
         }
 
         for (key, value) in &self.custom {
-            binding
-                .custom
-                .insert(key.clone(), vec![value.clone()]);
+            binding.custom.insert(key.clone(), vec![value.clone()]);
         }
 
         binding
@@ -476,8 +474,7 @@ mod tests {
 
     #[test]
     fn custom_key_matching_value_passes() {
-        let binding =
-            HardwareBinding::new().with_custom("tpm_pcr7", vec!["abc123".to_string()]);
+        let binding = HardwareBinding::new().with_custom("tpm_pcr7", vec!["abc123".to_string()]);
         let mut hw = HardwareInfo::default();
         hw.custom
             .insert("tpm_pcr7".to_string(), "abc123".to_string());
@@ -486,8 +483,7 @@ mod tests {
 
     #[test]
     fn custom_key_mismatching_value_fails() {
-        let binding =
-            HardwareBinding::new().with_custom("tpm_pcr7", vec!["abc123".to_string()]);
+        let binding = HardwareBinding::new().with_custom("tpm_pcr7", vec!["abc123".to_string()]);
         let mut hw = HardwareInfo::default();
         hw.custom
             .insert("tpm_pcr7".to_string(), "wrong".to_string());
@@ -496,16 +492,14 @@ mod tests {
 
     #[test]
     fn custom_key_absent_from_hardware_fails() {
-        let binding =
-            HardwareBinding::new().with_custom("dongle_serial", vec!["D001".to_string()]);
+        let binding = HardwareBinding::new().with_custom("dongle_serial", vec!["D001".to_string()]);
         let hw = HardwareInfo::default();
         assert!(verify_hardware_binding(&binding, &hw).is_err());
     }
 
     #[test]
     fn custom_key_absent_returns_custom_mismatch_error() {
-        let binding =
-            HardwareBinding::new().with_custom("dongle_serial", vec!["D001".to_string()]);
+        let binding = HardwareBinding::new().with_custom("dongle_serial", vec!["D001".to_string()]);
         let hw = HardwareInfo::default();
         let err = verify_hardware_binding(&binding, &hw).unwrap_err();
         match err {
@@ -533,8 +527,7 @@ mod tests {
             .with_custom("tpm_pcr7", vec!["abc".to_string()])
             .with_custom("dongle", vec!["D1".to_string()]);
         let mut hw = HardwareInfo::default();
-        hw.custom
-            .insert("tpm_pcr7".to_string(), "abc".to_string());
+        hw.custom.insert("tpm_pcr7".to_string(), "abc".to_string());
         // dongle missing → should fail
         assert!(verify_hardware_binding(&binding, &hw).is_err());
     }
@@ -545,10 +538,8 @@ mod tests {
             .with_custom("tpm_pcr7", vec!["abc".to_string()])
             .with_custom("dongle", vec!["D1".to_string()]);
         let mut hw = HardwareInfo::default();
-        hw.custom
-            .insert("tpm_pcr7".to_string(), "abc".to_string());
-        hw.custom
-            .insert("dongle".to_string(), "D1".to_string());
+        hw.custom.insert("tpm_pcr7".to_string(), "abc".to_string());
+        hw.custom.insert("dongle".to_string(), "D1".to_string());
         assert!(verify_hardware_binding(&binding, &hw).is_ok());
     }
 
@@ -558,8 +549,7 @@ mod tests {
 
     #[test]
     fn machine_id_binding_passes_when_present_and_matching() {
-        let binding = HardwareBinding::new()
-            .with_custom("machine_id", vec!["mid-123".to_string()]);
+        let binding = HardwareBinding::new().with_custom("machine_id", vec!["mid-123".to_string()]);
         let hw = HardwareInfo {
             machine_id: Some("mid-123".to_string()),
             ..Default::default()
@@ -569,8 +559,7 @@ mod tests {
 
     #[test]
     fn machine_id_binding_fails_when_present_but_wrong() {
-        let binding = HardwareBinding::new()
-            .with_custom("machine_id", vec!["mid-123".to_string()]);
+        let binding = HardwareBinding::new().with_custom("machine_id", vec!["mid-123".to_string()]);
         let hw = HardwareInfo {
             machine_id: Some("mid-wrong".to_string()),
             ..Default::default()
@@ -580,8 +569,7 @@ mod tests {
 
     #[test]
     fn machine_id_binding_fails_when_absent() {
-        let binding = HardwareBinding::new()
-            .with_custom("machine_id", vec!["mid-123".to_string()]);
+        let binding = HardwareBinding::new().with_custom("machine_id", vec!["mid-123".to_string()]);
         let hw = HardwareInfo {
             machine_id: None,
             ..Default::default()
@@ -591,8 +579,7 @@ mod tests {
 
     #[test]
     fn machine_id_absent_returns_not_detected_in_error() {
-        let binding = HardwareBinding::new()
-            .with_custom("machine_id", vec!["mid-123".to_string()]);
+        let binding = HardwareBinding::new().with_custom("machine_id", vec!["mid-123".to_string()]);
         let hw = HardwareInfo {
             machine_id: None,
             ..Default::default()
@@ -620,8 +607,7 @@ mod tests {
     #[test]
     fn to_binding_includes_custom_fields() {
         let mut hw = HardwareInfo::default();
-        hw.custom
-            .insert("sensor_id".to_string(), "S42".to_string());
+        hw.custom.insert("sensor_id".to_string(), "S42".to_string());
         let binding = hw.to_binding();
         assert_eq!(
             binding.custom.get("sensor_id").unwrap(),

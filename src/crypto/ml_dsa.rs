@@ -17,9 +17,7 @@
 
 use super::SignatureAlgorithm;
 use crate::error::{LicenseError, Result};
-use ml_dsa::{
-    Generate, Keypair, MlDsa65, Signature, Signer, SigningKey, Verifier, VerifyingKey,
-};
+use ml_dsa::{Generate, Keypair, MlDsa65, Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use pem::{encode, parse, Pem};
 
 /// PEM tag for ML-DSA-65 private keys

@@ -1062,7 +1062,10 @@ mod tests {
         };
 
         let att = witness.attest_license(&license, &config).unwrap();
-        assert!(att.hardware.unmatched_factors.contains(&"hostname".to_string()));
+        assert!(att
+            .hardware
+            .unmatched_factors
+            .contains(&"hostname".to_string()));
     }
 
     #[test]
@@ -1082,7 +1085,10 @@ mod tests {
         };
 
         let att = witness.attest_license(&license, &config).unwrap();
-        assert!(att.hardware.matched_factors.contains(&"mac_address".to_string()));
+        assert!(att
+            .hardware
+            .matched_factors
+            .contains(&"mac_address".to_string()));
     }
 
     // ========================================================================
@@ -1100,8 +1106,7 @@ mod tests {
             .product_id("CustomApp")
             .valid_days(365)
             .hardware_binding(
-                crate::HardwareBinding::new()
-                    .with_custom("tpm_pcr7", vec!["abc123".to_string()]),
+                crate::HardwareBinding::new().with_custom("tpm_pcr7", vec!["abc123".to_string()]),
             )
             .build()
             .unwrap();
@@ -1126,7 +1131,10 @@ mod tests {
         };
 
         let att = witness.attest_license(&license, &config).unwrap();
-        assert!(att.hardware.matched_factors.contains(&"tpm_pcr7".to_string()));
+        assert!(att
+            .hardware
+            .matched_factors
+            .contains(&"tpm_pcr7".to_string()));
     }
 
     #[test]
@@ -1142,7 +1150,10 @@ mod tests {
         };
 
         let att = witness.attest_license(&license, &config).unwrap();
-        assert!(att.hardware.unmatched_factors.contains(&"tpm_pcr7".to_string()));
+        assert!(att
+            .hardware
+            .unmatched_factors
+            .contains(&"tpm_pcr7".to_string()));
     }
 
     #[test]
