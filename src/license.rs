@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Hardware binding information for a license
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -20,8 +20,8 @@ pub struct HardwareBinding {
     pub hostnames: Vec<String>,
 
     /// Custom hardware identifiers (key-value pairs)
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub custom: HashMap<String, Vec<String>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub custom: BTreeMap<String, Vec<String>>,
 }
 
 impl HardwareBinding {
@@ -108,8 +108,8 @@ pub struct LicenseData {
     pub max_seats: u32,
 
     /// Additional metadata
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata: HashMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, String>,
 
     /// License issue timestamp
     pub issued_at: DateTime<Utc>,
@@ -158,7 +158,7 @@ pub struct LicenseDataBuilder {
     features: Vec<String>,
     hardware_binding: HardwareBinding,
     max_seats: u32,
-    metadata: HashMap<String, String>,
+    metadata: BTreeMap<String, String>,
 }
 
 impl LicenseDataBuilder {
@@ -308,3 +308,154 @@ pub enum LicenseFormat {
 /// Binary license file header
 pub const BINARY_MAGIC: &[u8; 4] = b"FLIC";
 pub const BINARY_VERSION: u8 = 1;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // BTreeMap: metadata field uses sorted map
+    // ========================================================================
+
+    #[test]
+    fn metadata_is_btreemap_type() {
+        let data = LicenseData::builder()
+            .id("T1")
+            .serial("S1")
+            .customer_id("C1")
+            .product_id("P1")
+            .valid_days(1)
+            .build()
+            .unwrap();
+        // This verifies the type at compile time — BTreeMap has a deterministic iterator
+        let _: &BTreeMap<String, String> = &data.metadata;
+    }
+
+    #[test]
+    fn hardware_binding_custom_is_btreemap_type() {
+        let binding = HardwareBinding::new();
+        let _: &BTreeMap<String, Vec<String>> = &binding.custom;
+    }
+
+    #[test]
+    fn metadata_deserializes_from_json_into_sorted_order() {
+        let json = r#"{
+            "id": "T1",
+            "serial": "S1",
+            "customer_id": "C1",
+            "product_id": "P1",
+            "version": 1,
+            "valid_from": "2025-01-01T00:00:00Z",
+            "valid_until": "2026-01-01T00:00:00Z",
+            "features": [],
+            "hardware_binding": {},
+            "max_seats": 0,
+            "metadata": {"zzz": "last", "aaa": "first"},
+            "issued_at": "2025-01-01T00:00:00Z"
+        }"#;
+        let data: LicenseData = serde_json::from_str(json).unwrap();
+        let keys: Vec<&String> = data.metadata.keys().collect();
+        assert_eq!(keys, vec!["aaa", "zzz"]);
+    }
+
+    #[test]
+    fn metadata_round_trip_serialization_is_stable() {
+        let mut data = LicenseData::builder()
+            .id("T1")
+            .serial("S1")
+            .customer_id("C1")
+            .product_id("P1")
+            .valid_days(1)
+            .build()
+            .unwrap();
+        data.metadata.insert("z".to_string(), "1".to_string());
+        data.metadata.insert("a".to_string(), "2".to_string());
+
+        let json1 = serde_json::to_string(&data).unwrap();
+        // Deserialize and re-serialize — must be identical
+        let data2: LicenseData = serde_json::from_str(&json1).unwrap();
+        let json2 = serde_json::to_string(&data2).unwrap();
+        assert_eq!(json1, json2);
+    }
+
+    // ========================================================================
+    // LicenseData builder
+    // ========================================================================
+
+    #[test]
+    fn builder_requires_id() {
+        let result = LicenseData::builder()
+            .serial("S")
+            .customer_id("C")
+            .product_id("P")
+            .valid_days(1)
+            .build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn builder_requires_serial() {
+        let result = LicenseData::builder()
+            .id("I")
+            .customer_id("C")
+            .product_id("P")
+            .valid_days(1)
+            .build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn builder_requires_customer_id() {
+        let result = LicenseData::builder()
+            .id("I")
+            .serial("S")
+            .product_id("P")
+            .valid_days(1)
+            .build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn builder_requires_product_id() {
+        let result = LicenseData::builder()
+            .id("I")
+            .serial("S")
+            .customer_id("C")
+            .valid_days(1)
+            .build();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn has_feature_is_case_insensitive() {
+        let data = LicenseData::builder()
+            .id("I")
+            .serial("S")
+            .customer_id("C")
+            .product_id("P")
+            .valid_days(1)
+            .feature("Premium")
+            .build()
+            .unwrap();
+        assert!(data.has_feature("premium"));
+        assert!(data.has_feature("PREMIUM"));
+    }
+
+    #[test]
+    fn empty_hardware_binding_is_empty() {
+        let binding = HardwareBinding::new();
+        assert!(binding.is_empty());
+    }
+
+    #[test]
+    fn hardware_binding_with_mac_is_not_empty() {
+        let binding = HardwareBinding::new().with_mac_address("AA:BB:CC:DD:EE:FF");
+        assert!(!binding.is_empty());
+    }
+
+    #[test]
+    fn hardware_binding_with_custom_is_not_empty() {
+        let binding = HardwareBinding::new().with_custom("k", vec!["v".to_string()]);
+        assert!(!binding.is_empty());
+    }
+}

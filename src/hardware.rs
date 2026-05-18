@@ -61,6 +61,13 @@ pub struct HardwareInfo {
 
     /// Machine UUID (if available)
     pub machine_id: Option<String>,
+
+    /// Custom hardware identifiers provided by the application
+    ///
+    /// Integrators can populate this map with arbitrary key-value pairs
+    /// (e.g., TPM PCR measurements, dongle serial numbers) that will be
+    /// matched against the corresponding keys in [`HardwareBinding::custom`].
+    pub custom: std::collections::BTreeMap<String, String>,
 }
 
 impl HardwareInfo {
@@ -86,6 +93,12 @@ impl HardwareInfo {
                 .insert("machine_id".to_string(), vec![machine_id.clone()]);
         }
 
+        for (key, value) in &self.custom {
+            binding
+                .custom
+                .insert(key.clone(), vec![value.clone()]);
+        }
+
         binding
     }
 }
@@ -101,6 +114,7 @@ pub fn detect_hardware() -> HardwareInfo {
             hostname: detect_hostname(),
             disk_ids: detect_disk_ids(),
             machine_id: detect_machine_id(),
+            custom: std::collections::BTreeMap::new(),
         }
     }
     #[cfg(not(feature = "hardware-detect"))]
@@ -110,6 +124,7 @@ pub fn detect_hardware() -> HardwareInfo {
             hostname: None,
             disk_ids: vec![],
             machine_id: None,
+            custom: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -321,15 +336,28 @@ pub fn verify_hardware_binding(
 
     // Check custom bindings
     for (key, expected_values) in &binding.custom {
-        if key == "machine_id" {
-            if let Some(ref current_id) = current.machine_id {
-                if !expected_values.contains(current_id) {
+        let current_value = if key == "machine_id" {
+            current.machine_id.as_deref()
+        } else {
+            current.custom.get(key.as_str()).map(|s| s.as_str())
+        };
+
+        match current_value {
+            Some(val) => {
+                if !expected_values.iter().any(|e| e == val) {
                     return Err(HardwareBindingError::CustomMismatch {
                         key: key.clone(),
                         expected: expected_values.clone(),
-                        found: current_id.clone(),
+                        found: val.to_string(),
                     });
                 }
+            }
+            None => {
+                return Err(HardwareBindingError::CustomMismatch {
+                    key: key.clone(),
+                    expected: expected_values.clone(),
+                    found: "<not detected>".to_string(),
+                });
             }
         }
     }
@@ -440,5 +468,218 @@ mod tests {
 
         hardware.hostname = Some("other-server".to_string());
         assert!(verify_hardware_binding(&binding, &hardware).is_err());
+    }
+
+    // ========================================================================
+    // Fix #4: Custom binding keys must be checked (not silently ignored)
+    // ========================================================================
+
+    #[test]
+    fn custom_key_matching_value_passes() {
+        let binding =
+            HardwareBinding::new().with_custom("tpm_pcr7", vec!["abc123".to_string()]);
+        let mut hw = HardwareInfo::default();
+        hw.custom
+            .insert("tpm_pcr7".to_string(), "abc123".to_string());
+        assert!(verify_hardware_binding(&binding, &hw).is_ok());
+    }
+
+    #[test]
+    fn custom_key_mismatching_value_fails() {
+        let binding =
+            HardwareBinding::new().with_custom("tpm_pcr7", vec!["abc123".to_string()]);
+        let mut hw = HardwareInfo::default();
+        hw.custom
+            .insert("tpm_pcr7".to_string(), "wrong".to_string());
+        assert!(verify_hardware_binding(&binding, &hw).is_err());
+    }
+
+    #[test]
+    fn custom_key_absent_from_hardware_fails() {
+        let binding =
+            HardwareBinding::new().with_custom("dongle_serial", vec!["D001".to_string()]);
+        let hw = HardwareInfo::default();
+        assert!(verify_hardware_binding(&binding, &hw).is_err());
+    }
+
+    #[test]
+    fn custom_key_absent_returns_custom_mismatch_error() {
+        let binding =
+            HardwareBinding::new().with_custom("dongle_serial", vec!["D001".to_string()]);
+        let hw = HardwareInfo::default();
+        let err = verify_hardware_binding(&binding, &hw).unwrap_err();
+        match err {
+            HardwareBindingError::CustomMismatch { key, found, .. } => {
+                assert_eq!(key, "dongle_serial");
+                assert_eq!(found, "<not detected>");
+            }
+            other => panic!("expected CustomMismatch, got: {}", other),
+        }
+    }
+
+    #[test]
+    fn custom_key_any_of_multiple_values_passes() {
+        let binding = HardwareBinding::new()
+            .with_custom("region", vec!["us-east".to_string(), "eu-west".to_string()]);
+        let mut hw = HardwareInfo::default();
+        hw.custom
+            .insert("region".to_string(), "eu-west".to_string());
+        assert!(verify_hardware_binding(&binding, &hw).is_ok());
+    }
+
+    #[test]
+    fn multiple_custom_keys_all_must_match() {
+        let binding = HardwareBinding::new()
+            .with_custom("tpm_pcr7", vec!["abc".to_string()])
+            .with_custom("dongle", vec!["D1".to_string()]);
+        let mut hw = HardwareInfo::default();
+        hw.custom
+            .insert("tpm_pcr7".to_string(), "abc".to_string());
+        // dongle missing → should fail
+        assert!(verify_hardware_binding(&binding, &hw).is_err());
+    }
+
+    #[test]
+    fn multiple_custom_keys_all_present_passes() {
+        let binding = HardwareBinding::new()
+            .with_custom("tpm_pcr7", vec!["abc".to_string()])
+            .with_custom("dongle", vec!["D1".to_string()]);
+        let mut hw = HardwareInfo::default();
+        hw.custom
+            .insert("tpm_pcr7".to_string(), "abc".to_string());
+        hw.custom
+            .insert("dongle".to_string(), "D1".to_string());
+        assert!(verify_hardware_binding(&binding, &hw).is_ok());
+    }
+
+    // ========================================================================
+    // Fix #5: Missing machine_id must fail (not silently pass)
+    // ========================================================================
+
+    #[test]
+    fn machine_id_binding_passes_when_present_and_matching() {
+        let binding = HardwareBinding::new()
+            .with_custom("machine_id", vec!["mid-123".to_string()]);
+        let hw = HardwareInfo {
+            machine_id: Some("mid-123".to_string()),
+            ..Default::default()
+        };
+        assert!(verify_hardware_binding(&binding, &hw).is_ok());
+    }
+
+    #[test]
+    fn machine_id_binding_fails_when_present_but_wrong() {
+        let binding = HardwareBinding::new()
+            .with_custom("machine_id", vec!["mid-123".to_string()]);
+        let hw = HardwareInfo {
+            machine_id: Some("mid-wrong".to_string()),
+            ..Default::default()
+        };
+        assert!(verify_hardware_binding(&binding, &hw).is_err());
+    }
+
+    #[test]
+    fn machine_id_binding_fails_when_absent() {
+        let binding = HardwareBinding::new()
+            .with_custom("machine_id", vec!["mid-123".to_string()]);
+        let hw = HardwareInfo {
+            machine_id: None,
+            ..Default::default()
+        };
+        assert!(verify_hardware_binding(&binding, &hw).is_err());
+    }
+
+    #[test]
+    fn machine_id_absent_returns_not_detected_in_error() {
+        let binding = HardwareBinding::new()
+            .with_custom("machine_id", vec!["mid-123".to_string()]);
+        let hw = HardwareInfo {
+            machine_id: None,
+            ..Default::default()
+        };
+        let err = verify_hardware_binding(&binding, &hw).unwrap_err();
+        match err {
+            HardwareBindingError::CustomMismatch { key, found, .. } => {
+                assert_eq!(key, "machine_id");
+                assert_eq!(found, "<not detected>");
+            }
+            other => panic!("expected CustomMismatch, got: {}", other),
+        }
+    }
+
+    // ========================================================================
+    // HardwareInfo.custom field integration
+    // ========================================================================
+
+    #[test]
+    fn hardware_info_custom_field_defaults_to_empty() {
+        let hw = HardwareInfo::default();
+        assert!(hw.custom.is_empty());
+    }
+
+    #[test]
+    fn to_binding_includes_custom_fields() {
+        let mut hw = HardwareInfo::default();
+        hw.custom
+            .insert("sensor_id".to_string(), "S42".to_string());
+        let binding = hw.to_binding();
+        assert_eq!(
+            binding.custom.get("sensor_id").unwrap(),
+            &vec!["S42".to_string()]
+        );
+    }
+
+    // ========================================================================
+    // Existing behavior preserved: disk_id binding
+    // ========================================================================
+
+    #[test]
+    fn disk_id_binding_passes_when_matching() {
+        let binding = HardwareBinding::new().with_disk_id("DISK-001");
+        let hw = HardwareInfo {
+            disk_ids: vec!["DISK-001".to_string()],
+            ..Default::default()
+        };
+        assert!(verify_hardware_binding(&binding, &hw).is_ok());
+    }
+
+    #[test]
+    fn disk_id_binding_fails_when_no_match() {
+        let binding = HardwareBinding::new().with_disk_id("DISK-001");
+        let hw = HardwareInfo {
+            disk_ids: vec!["DISK-999".to_string()],
+            ..Default::default()
+        };
+        assert!(verify_hardware_binding(&binding, &hw).is_err());
+    }
+
+    #[test]
+    fn hostname_binding_is_case_insensitive() {
+        let binding = HardwareBinding::new().with_hostname("My-Server");
+        let hw = HardwareInfo {
+            hostname: Some("MY-SERVER".to_string()),
+            ..Default::default()
+        };
+        assert!(verify_hardware_binding(&binding, &hw).is_ok());
+    }
+
+    #[test]
+    fn hostname_binding_fails_when_hostname_is_none() {
+        let binding = HardwareBinding::new().with_hostname("my-server");
+        let hw = HardwareInfo {
+            hostname: None,
+            ..Default::default()
+        };
+        assert!(verify_hardware_binding(&binding, &hw).is_err());
+    }
+
+    #[test]
+    fn mac_address_binding_is_case_insensitive() {
+        let binding = HardwareBinding::new().with_mac_address("aa:bb:cc:dd:ee:ff");
+        let hw = HardwareInfo {
+            mac_addresses: vec!["AA:BB:CC:DD:EE:FF".to_string()],
+            ..Default::default()
+        };
+        assert!(verify_hardware_binding(&binding, &hw).is_ok());
     }
 }

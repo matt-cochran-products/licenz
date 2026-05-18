@@ -17,12 +17,34 @@
 use crate::anti_tamper::{ClockStatus, HardwareFingerprint, LicenseState};
 use crate::container::RuntimeEnvironment;
 use crate::hardware::{default_hardware_environment, HardwareEnvironment};
-use crate::verifier::LicenseVerifier;
+use crate::verifier::{CryptoVerifier, LicenseVerifier};
 use crate::{LicenseError, Result, SignedLicense, StateManager};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
+
+/// Internal verifier abstraction that supports both RSA-only and multi-algorithm verification.
+enum WitnessVerifier {
+    Legacy(LicenseVerifier),
+    Crypto(CryptoVerifier),
+}
+
+impl WitnessVerifier {
+    fn load_license(&self, path: &Path) -> Result<SignedLicense> {
+        match self {
+            WitnessVerifier::Legacy(v) => v.load_license(path),
+            WitnessVerifier::Crypto(v) => v.load_license(path),
+        }
+    }
+
+    fn verify_signature(&self, license: &SignedLicense) -> Result<()> {
+        match self {
+            WitnessVerifier::Legacy(v) => v.verify_signature(license),
+            WitnessVerifier::Crypto(v) => v.verify_signature(license),
+        }
+    }
+}
 
 /// Security attestation result from the witness
 ///
@@ -325,20 +347,45 @@ impl Default for WitnessConfig {
 
 /// The Security Witness - performs attestation without enforcement
 pub struct SecurityWitness {
-    verifier: LicenseVerifier,
+    verifier: WitnessVerifier,
 }
 
 impl SecurityWitness {
-    /// Create a new security witness from a public key PEM string
+    /// Create a new security witness from a public key PEM string.
+    ///
+    /// This constructor auto-detects the key type (RSA or Ed25519) and
+    /// registers it with the appropriate algorithm. For multi-algorithm
+    /// support or explicit algorithm selection, use [`Self::from_crypto_verifier`].
     pub fn new(public_key_pem: &str) -> Result<Self> {
-        let verifier = LicenseVerifier::from_pem(public_key_pem)?;
-        Ok(Self { verifier })
+        let verifier = CryptoVerifier::from_pem(public_key_pem)?;
+        Ok(Self {
+            verifier: WitnessVerifier::Crypto(verifier),
+        })
     }
 
-    /// Create from a PEM file path
+    /// Create from a PEM file path (auto-detects key type).
     pub fn from_pem_file(path: &Path) -> Result<Self> {
-        let verifier = LicenseVerifier::from_pem_file(path)?;
-        Ok(Self { verifier })
+        let verifier = CryptoVerifier::from_pem_file(path)?;
+        Ok(Self {
+            verifier: WitnessVerifier::Crypto(verifier),
+        })
+    }
+
+    /// Create from a pre-configured [`CryptoVerifier`] with multiple algorithm keys.
+    ///
+    /// Use this when you need to support multiple signing algorithms
+    /// (e.g., RSA + Ed25519, or hybrid post-quantum modes).
+    pub fn from_crypto_verifier(verifier: CryptoVerifier) -> Self {
+        Self {
+            verifier: WitnessVerifier::Crypto(verifier),
+        }
+    }
+
+    /// Create from a legacy RSA-only [`LicenseVerifier`].
+    pub fn from_legacy_verifier(verifier: LicenseVerifier) -> Self {
+        Self {
+            verifier: WitnessVerifier::Legacy(verifier),
+        }
     }
 
     /// Perform comprehensive attestation of a license
@@ -422,15 +469,9 @@ impl SecurityWitness {
         let environment = self.attest_environment(config, &mut anomalies);
 
         // Calculate overall validity (factual, not policy)
-        let is_valid = signature_valid
-            && expiration.is_within_window
-            && (!hardware.was_checked
-                || hardware
-                    .matched_factors
-                    .len()
-                    .saturating_add(hardware.unmatched_factors.len())
-                    == 0
-                || !hardware.matched_factors.is_empty());
+        // All specified binding factors must match — consistent with verify_hardware_binding().
+        let hardware_ok = !hardware.was_checked || hardware.unmatched_factors.is_empty();
+        let is_valid = signature_valid && expiration.is_within_window && hardware_ok;
 
         Ok(SecurityAttestation {
             signature_valid,
@@ -539,16 +580,21 @@ impl SecurityWitness {
             }
         }
 
-        // Check machine ID (custom binding)
-        if let Some(expected_ids) = binding.custom.get("machine_id") {
-            if let Some(ref current_id) = current_hw.machine_id {
-                if expected_ids.contains(current_id) {
-                    matched_factors.push("machine_id".to_string());
-                } else {
-                    unmatched_factors.push("machine_id".to_string());
-                }
+        // Check all custom bindings
+        for (key, expected_values) in &binding.custom {
+            let current_value = if key == "machine_id" {
+                current_hw.machine_id.as_deref()
             } else {
-                unmatched_factors.push("machine_id".to_string());
+                current_hw.custom.get(key.as_str()).map(|s| s.as_str())
+            };
+
+            match current_value {
+                Some(val) if expected_values.iter().any(|e| e == val) => {
+                    matched_factors.push(key.clone());
+                }
+                _ => {
+                    unmatched_factors.push(key.clone());
+                }
             }
         }
 
@@ -840,5 +886,278 @@ mod tests {
             attestation.expiration.days_remaining >= 364
                 && attestation.expiration.days_remaining <= 365
         );
+    }
+
+    // ========================================================================
+    // NEW #1: SecurityWitness supports Ed25519 (no longer RSA-only)
+    // ========================================================================
+
+    fn create_ed25519_test_license() -> (String, SignedLicense) {
+        use crate::crypto::algorithm_ids;
+        use crate::{CryptoGenerator, CryptoKeyPair};
+
+        let keypair = CryptoKeyPair::generate(algorithm_ids::ED25519).unwrap();
+        let generator = CryptoGenerator::from_keypair(&keypair);
+
+        let data = LicenseData::builder()
+            .id("ED-TEST-001")
+            .serial("SN-ED25519")
+            .customer_id("Ed25519 Customer")
+            .product_id("EdApp")
+            .valid_days(365)
+            .feature("basic")
+            .build()
+            .unwrap();
+
+        let signed = generator.generate(data).unwrap();
+        (keypair.public_key_pem.clone(), signed)
+    }
+
+    #[test]
+    fn witness_new_accepts_ed25519_key() {
+        let (public_key, _license) = create_ed25519_test_license();
+        assert!(SecurityWitness::new(&public_key).is_ok());
+    }
+
+    #[test]
+    fn witness_validates_ed25519_signature() {
+        let (public_key, license) = create_ed25519_test_license();
+        let witness = SecurityWitness::new(&public_key).unwrap();
+        let att = witness
+            .attest_license(&license, &WitnessConfig::default())
+            .unwrap();
+        assert!(att.signature_valid);
+    }
+
+    #[test]
+    fn witness_ed25519_is_valid_when_not_expired() {
+        let (public_key, license) = create_ed25519_test_license();
+        let witness = SecurityWitness::new(&public_key).unwrap();
+        let att = witness
+            .attest_license(&license, &WitnessConfig::default())
+            .unwrap();
+        assert!(att.is_valid);
+    }
+
+    #[test]
+    fn witness_from_crypto_verifier_validates_ed25519() {
+        use crate::crypto::algorithm_ids;
+        let (public_key, license) = create_ed25519_test_license();
+
+        let mut keys = std::collections::HashMap::new();
+        keys.insert(algorithm_ids::ED25519.to_string(), public_key);
+        let verifier = crate::verifier::CryptoVerifier::new(keys);
+
+        let witness = SecurityWitness::from_crypto_verifier(verifier);
+        let att = witness
+            .attest_license(&license, &WitnessConfig::default())
+            .unwrap();
+        assert!(att.signature_valid);
+    }
+
+    #[test]
+    fn witness_from_legacy_verifier_validates_rsa() {
+        let (public_key, license) = create_test_license();
+        let legacy = crate::verifier::LicenseVerifier::from_pem(&public_key).unwrap();
+        let witness = SecurityWitness::from_legacy_verifier(legacy);
+        let att = witness
+            .attest_license(&license, &WitnessConfig::default())
+            .unwrap();
+        assert!(att.signature_valid);
+    }
+
+    // ========================================================================
+    // NEW #2: is_valid requires ALL hardware factors to match
+    // ========================================================================
+
+    fn create_hw_bound_license() -> (String, SignedLicense) {
+        let keypair = KeyPair::generate(KeySize::Bits2048).unwrap();
+        let generator = LicenseGenerator::new(keypair.private_key().clone());
+
+        let data = LicenseData::builder()
+            .id("HW-001")
+            .serial("SN-HW")
+            .customer_id("HW Customer")
+            .product_id("HwApp")
+            .valid_days(365)
+            .hardware_binding(
+                crate::HardwareBinding::new()
+                    .with_mac_address("AA:BB:CC:DD:EE:FF")
+                    .with_hostname("test-host"),
+            )
+            .build()
+            .unwrap();
+
+        let signed = generator.generate(data).unwrap();
+        let public_key = keypair.export_public_pem().unwrap();
+        (public_key, signed)
+    }
+
+    #[test]
+    fn witness_is_valid_false_when_one_factor_unmatched() {
+        let (public_key, license) = create_hw_bound_license();
+        let witness = SecurityWitness::new(&public_key).unwrap();
+
+        // Only MAC matches, hostname does not
+        let hw = crate::HardwareInfo {
+            mac_addresses: vec!["AA:BB:CC:DD:EE:FF".to_string()],
+            hostname: Some("wrong-host".to_string()),
+            ..Default::default()
+        };
+
+        let config = WitnessConfig {
+            hardware_environment: Arc::new(crate::FixedHardwareEnvironment(hw)),
+            ..Default::default()
+        };
+
+        let att = witness.attest_license(&license, &config).unwrap();
+        assert!(!att.is_valid);
+    }
+
+    #[test]
+    fn witness_is_valid_true_when_all_factors_match() {
+        let (public_key, license) = create_hw_bound_license();
+        let witness = SecurityWitness::new(&public_key).unwrap();
+
+        let hw = crate::HardwareInfo {
+            mac_addresses: vec!["AA:BB:CC:DD:EE:FF".to_string()],
+            hostname: Some("test-host".to_string()),
+            ..Default::default()
+        };
+
+        let config = WitnessConfig {
+            hardware_environment: Arc::new(crate::FixedHardwareEnvironment(hw)),
+            ..Default::default()
+        };
+
+        let att = witness.attest_license(&license, &config).unwrap();
+        assert!(att.is_valid);
+    }
+
+    #[test]
+    fn witness_is_valid_true_when_no_binding_specified() {
+        let (public_key, license) = create_test_license();
+        let witness = SecurityWitness::new(&public_key).unwrap();
+        let att = witness
+            .attest_license(&license, &WitnessConfig::default())
+            .unwrap();
+        // No hardware binding → hardware check sees no factors → is_valid = true
+        assert!(att.is_valid);
+    }
+
+    #[test]
+    fn witness_unmatched_factors_lists_failing_factor() {
+        let (public_key, license) = create_hw_bound_license();
+        let witness = SecurityWitness::new(&public_key).unwrap();
+
+        let hw = crate::HardwareInfo {
+            mac_addresses: vec!["AA:BB:CC:DD:EE:FF".to_string()],
+            hostname: Some("wrong-host".to_string()),
+            ..Default::default()
+        };
+
+        let config = WitnessConfig {
+            hardware_environment: Arc::new(crate::FixedHardwareEnvironment(hw)),
+            ..Default::default()
+        };
+
+        let att = witness.attest_license(&license, &config).unwrap();
+        assert!(att.hardware.unmatched_factors.contains(&"hostname".to_string()));
+    }
+
+    #[test]
+    fn witness_matched_factors_lists_passing_factor() {
+        let (public_key, license) = create_hw_bound_license();
+        let witness = SecurityWitness::new(&public_key).unwrap();
+
+        let hw = crate::HardwareInfo {
+            mac_addresses: vec!["AA:BB:CC:DD:EE:FF".to_string()],
+            hostname: Some("wrong-host".to_string()),
+            ..Default::default()
+        };
+
+        let config = WitnessConfig {
+            hardware_environment: Arc::new(crate::FixedHardwareEnvironment(hw)),
+            ..Default::default()
+        };
+
+        let att = witness.attest_license(&license, &config).unwrap();
+        assert!(att.hardware.matched_factors.contains(&"mac_address".to_string()));
+    }
+
+    // ========================================================================
+    // Witness custom key attestation
+    // ========================================================================
+
+    fn create_custom_bound_license() -> (String, SignedLicense) {
+        let keypair = KeyPair::generate(KeySize::Bits2048).unwrap();
+        let generator = LicenseGenerator::new(keypair.private_key().clone());
+
+        let data = LicenseData::builder()
+            .id("CUSTOM-001")
+            .serial("SN-CUSTOM")
+            .customer_id("Custom Customer")
+            .product_id("CustomApp")
+            .valid_days(365)
+            .hardware_binding(
+                crate::HardwareBinding::new()
+                    .with_custom("tpm_pcr7", vec!["abc123".to_string()]),
+            )
+            .build()
+            .unwrap();
+
+        let signed = generator.generate(data).unwrap();
+        let public_key = keypair.export_public_pem().unwrap();
+        (public_key, signed)
+    }
+
+    #[test]
+    fn witness_custom_key_matched_when_present() {
+        let (public_key, license) = create_custom_bound_license();
+        let witness = SecurityWitness::new(&public_key).unwrap();
+
+        let mut hw = crate::HardwareInfo::default();
+        hw.custom
+            .insert("tpm_pcr7".to_string(), "abc123".to_string());
+
+        let config = WitnessConfig {
+            hardware_environment: Arc::new(crate::FixedHardwareEnvironment(hw)),
+            ..Default::default()
+        };
+
+        let att = witness.attest_license(&license, &config).unwrap();
+        assert!(att.hardware.matched_factors.contains(&"tpm_pcr7".to_string()));
+    }
+
+    #[test]
+    fn witness_custom_key_unmatched_when_absent() {
+        let (public_key, license) = create_custom_bound_license();
+        let witness = SecurityWitness::new(&public_key).unwrap();
+
+        let hw = crate::HardwareInfo::default(); // no custom fields
+
+        let config = WitnessConfig {
+            hardware_environment: Arc::new(crate::FixedHardwareEnvironment(hw)),
+            ..Default::default()
+        };
+
+        let att = witness.attest_license(&license, &config).unwrap();
+        assert!(att.hardware.unmatched_factors.contains(&"tpm_pcr7".to_string()));
+    }
+
+    #[test]
+    fn witness_is_valid_false_when_custom_key_missing() {
+        let (public_key, license) = create_custom_bound_license();
+        let witness = SecurityWitness::new(&public_key).unwrap();
+
+        let hw = crate::HardwareInfo::default();
+
+        let config = WitnessConfig {
+            hardware_environment: Arc::new(crate::FixedHardwareEnvironment(hw)),
+            ..Default::default()
+        };
+
+        let att = witness.attest_license(&license, &config).unwrap();
+        assert!(!att.is_valid);
     }
 }
