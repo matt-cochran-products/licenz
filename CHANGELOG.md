@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MAX_LICENSE_FILE_SIZE` public constant (re-exported from `verifier`)
 - 49 new unit tests covering all fixed behaviours, edge cases, and regression paths (163 total)
 
+### Changed
+
+- **Post-quantum dependencies upgraded to stable releases** — `ml-dsa` from `0.1.0-rc.8` to `0.1.0` (FIPS 204), `ml-kem` from `0.3.0-rc.2` to `0.3.x` (FIPS 203). Migrated to updated API (`Generate` trait, `SigningKey::from_seed()`, `SigningKey::generate_from_rng()`).
+
 ### Breaking Changes
 
 - `LicenseData.metadata` type changed from `HashMap<String, String>` to `BTreeMap<String, String>`

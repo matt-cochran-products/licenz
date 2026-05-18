@@ -59,8 +59,8 @@ jsonwebtoken = { version = "9", optional = true, default-features = false, featu
 url = { version = "2", optional = true }
 
 # Optional post-quantum cryptography (FIPS 204 / FIPS 203)
-ml-dsa = { version = "=0.1.0-rc.8", optional = true }
-ml-kem = { version = "=0.3.0-rc.2", optional = true, features = ["getrandom"] }
+ml-dsa = { version = "0.1", optional = true }
+ml-kem = { version = "0.3", optional = true, features = ["getrandom"] }
 getrandom = { version = "0.4", optional = true, features = ["sys_rng"] }
 
 [dev-dependencies]
