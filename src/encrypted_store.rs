@@ -84,15 +84,7 @@ impl EncryptedKeyStore {
         let data = bincode::serde::encode_to_vec(self, bincode::config::standard())
             .map_err(|e| LicenseError::SerializationError(e.to_string()))?;
 
-        std::fs::write(path, data)?;
-
-        // Set restrictive permissions on Unix
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o600);
-            std::fs::set_permissions(path, perms)?;
-        }
+        crate::keys::write_private_file(path, &data)?;
 
         Ok(())
     }
@@ -124,17 +116,9 @@ impl EncryptedKeyStore {
         passphrase: &str,
     ) -> Result<()> {
         let store = Self::load(backup_path)?;
-        let pem = store.decrypt(passphrase)?;
+        let pem = Zeroizing::new(store.decrypt(passphrase)?);
 
-        std::fs::write(private_key_path, &pem)?;
-
-        // Set restrictive permissions on Unix
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o600);
-            std::fs::set_permissions(private_key_path, perms)?;
-        }
+        crate::keys::write_private_file(private_key_path, pem.as_bytes())?;
 
         Ok(())
     }
@@ -222,6 +206,33 @@ pub fn validate_passphrase(passphrase: &str) -> std::result::Result<(), Vec<&'st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn security_restore_replaces_public_inode_and_rejects_wrong_passphrase() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let backup = dir.path().join("backup");
+        let restored = dir.path().join("restored");
+        let alias = dir.path().join("alias");
+        let password = "SecurePass123!";
+        EncryptedKeyStore::encrypt("secret PEM", password)
+            .unwrap()
+            .save(&backup)
+            .unwrap();
+        std::fs::write(&restored, "old").unwrap();
+        std::fs::hard_link(&restored, &alias).unwrap();
+        assert!(EncryptedKeyStore::restore_key_file(&backup, &restored, "wrong").is_err());
+        assert_eq!(std::fs::read_to_string(&restored).unwrap(), "old");
+        EncryptedKeyStore::restore_key_file(&backup, &restored, password).unwrap();
+        assert_eq!(std::fs::read_to_string(&restored).unwrap(), "secret PEM");
+        assert_eq!(std::fs::read_to_string(&alias).unwrap(), "old");
+        assert_eq!(
+            std::fs::metadata(&restored).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
     use tempfile::TempDir;
 
     #[test]

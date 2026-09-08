@@ -65,12 +65,13 @@ impl ActivationRequest {
 
     /// Load an activation request from a file (auto-detects format)
     pub fn load(path: &Path) -> Result<Self> {
-        let data = std::fs::read(path)?;
+        let data = super::read_bounded(path)?;
         Self::from_bytes(&data)
     }
 
     /// Parse an activation request from bytes (auto-detects format)
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
+        super::check_input_size(data.len(), super::MAX_SNEAKERNET_INPUT_SIZE)?;
         match detect_format(data) {
             Some(SneakernetFormat::Binary) => Self::from_binary(data),
             Some(SneakernetFormat::Text) => {
@@ -86,6 +87,7 @@ impl ActivationRequest {
 
     /// Parse from binary format
     pub fn from_binary(data: &[u8]) -> Result<Self> {
+        super::check_input_size(data.len(), super::MAX_SNEAKERNET_BINARY_SIZE)?;
         if data.len() < 9 {
             return Err(LicenseError::InvalidLicenseFormat(
                 "Activation request too short".to_string(),
@@ -118,9 +120,9 @@ impl ActivationRequest {
             )));
         }
 
-        if data.len() < 9 + len {
+        if data.len() - 9 != len {
             return Err(LicenseError::InvalidLicenseFormat(
-                "Activation request data truncated".to_string(),
+                "Activation request length mismatch or trailing data".to_string(),
             ));
         }
 
@@ -143,6 +145,7 @@ impl ActivationRequest {
 
     /// Parse from base64 text format
     pub fn from_base64(text: &str) -> Result<Self> {
+        super::check_input_size(text.len(), super::MAX_SNEAKERNET_INPUT_SIZE)?;
         let trimmed = text.trim();
 
         // Strip prefix/suffix if present
@@ -160,16 +163,7 @@ impl ActivationRequest {
             trimmed
         };
 
-        // Remove any whitespace/newlines from base64 content
-        let clean_base64: String = base64_content
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect();
-
-        // Decode base64
-        let binary = BASE64
-            .decode(&clean_base64)
-            .map_err(|e| LicenseError::InvalidLicenseFormat(format!("Invalid base64: {}", e)))?;
+        let binary = super::decode_base64_bounded(base64_content)?;
 
         // Parse as binary
         Self::from_binary(&binary)
@@ -188,6 +182,8 @@ impl ActivationRequest {
         // Serialize the request
         let encoded = serde_json::to_vec(self)
             .map_err(|e| LicenseError::SerializationError(e.to_string()))?;
+
+        super::check_input_size(encoded.len(), MAX_SNEAKERNET_JSON_PAYLOAD)?;
 
         // Write length as u32 little-endian
         let len = encoded.len() as u32;
@@ -360,6 +356,58 @@ impl ActivationRequestBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn security_exact_payload_limit_roundtrips() {
+        let mut value = ActivationRequest::builder()
+            .product_id("test")
+            .build()
+            .unwrap();
+        value.checksum = None;
+        let current = serde_json::to_vec(&value).unwrap().len();
+        value
+            .product_id
+            .push_str(&"x".repeat(MAX_SNEAKERNET_JSON_PAYLOAD - current));
+        let binary = value.to_binary().unwrap();
+        assert_eq!(binary.len(), super::super::MAX_SNEAKERNET_BINARY_SIZE);
+        assert!(ActivationRequest::from_binary(&binary).is_ok());
+        assert!(ActivationRequest::from_base64(&value.to_base64().unwrap()).is_ok());
+        value.product_id.push('x');
+        assert!(value.to_binary().is_err());
+    }
+
+    #[test]
+    fn security_import_limits_reject_oversized_and_trailing_data() {
+        use crate::sneakernet::{MAX_SNEAKERNET_BASE64_SIZE, MAX_SNEAKERNET_INPUT_SIZE};
+        let value = ActivationRequest::builder()
+            .product_id("test")
+            .build()
+            .unwrap();
+        let binary = value.to_binary().unwrap();
+        let text = value.to_base64().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("offline");
+        value.save_binary(&path).unwrap();
+        assert!(ActivationRequest::load(&path).is_ok());
+        value.save_text(&path).unwrap();
+        assert!(ActivationRequest::load(&path).is_ok());
+        assert!(ActivationRequest::from_base64(&text.replace("\n", "\r\n")).is_ok());
+        let mut trailing = binary.clone();
+        trailing.extend_from_slice(b"extra");
+        assert!(ActivationRequest::from_binary(&trailing).is_err());
+        assert!(ActivationRequest::from_base64(&BASE64.encode(&trailing)).is_err());
+        assert!(
+            ActivationRequest::from_base64(&" ".repeat(MAX_SNEAKERNET_INPUT_SIZE + 1)).is_err()
+        );
+        assert!(
+            ActivationRequest::from_base64(&"A".repeat(MAX_SNEAKERNET_BASE64_SIZE + 4)).is_err()
+        );
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len((MAX_SNEAKERNET_INPUT_SIZE + 1) as u64)
+            .unwrap();
+        assert!(ActivationRequest::load(&path).is_err());
+        assert!(ActivationRequest::from_bytes(&vec![0; MAX_SNEAKERNET_INPUT_SIZE + 1]).is_err());
+    }
 
     fn create_test_fingerprint() -> HardwareFingerprint {
         HardwareFingerprint {

@@ -8,7 +8,7 @@
 //!
 //! A support bundle collects system and license state information that helps
 //! diagnose licensing problems without exposing sensitive data. The bundle can
-//! be optionally encrypted using a hardware-derived key for secure transmission.
+//! be optionally encrypted using a caller-supplied random secret key for secure transmission.
 //!
 //! # Security
 //!
@@ -31,6 +31,9 @@ use std::path::Path;
 
 /// Support bundle format version
 pub const BUNDLE_VERSION: u8 = 1;
+
+/// Secret-key encrypted envelope version. Insecure hardware-derived v1 is rejected.
+pub const ENCRYPTED_BUNDLE_VERSION: u8 = 2;
 
 /// Magic bytes for encrypted bundle format
 pub const ENCRYPTED_BUNDLE_MAGIC: &[u8; 4] = b"LSBX";
@@ -374,15 +377,15 @@ impl SupportBundle {
             .map_err(|e| LicenseError::InvalidLicenseFormat(format!("Invalid bundle JSON: {}", e)))
     }
 
-    /// Encrypt the bundle using a hardware-derived key
-    pub fn encrypt(&self) -> Result<Vec<u8>> {
+    /// Encrypt the bundle using a caller-supplied random secret key
+    pub fn encrypt(&self, key: &[u8; 32]) -> Result<Vec<u8>> {
         let json = self.to_json_compact()?;
-        encrypt_bundle(json.as_bytes())
+        encrypt_bundle(json.as_bytes(), key)
     }
 
     /// Decrypt an encrypted bundle
-    pub fn decrypt(encrypted: &[u8]) -> Result<Self> {
-        let decrypted = decrypt_bundle(encrypted)?;
+    pub fn decrypt(encrypted: &[u8], key: &[u8; 32]) -> Result<Self> {
+        let decrypted = decrypt_bundle(encrypted, key)?;
         let json = String::from_utf8(decrypted)
             .map_err(|e| LicenseError::InvalidLicenseFormat(format!("Invalid UTF-8: {}", e)))?;
         Self::from_json(&json)
@@ -396,19 +399,35 @@ impl SupportBundle {
     }
 
     /// Save the bundle as encrypted binary
-    pub fn save_encrypted(&self, path: &Path) -> Result<()> {
-        let encrypted = self.encrypt()?;
+    pub fn save_encrypted(&self, path: &Path, key: &[u8; 32]) -> Result<()> {
+        let encrypted = self.encrypt(key)?;
         std::fs::write(path, encrypted)?;
         Ok(())
     }
 
-    /// Load a bundle from a file (auto-detects format)
+    /// Generate a fresh bundle encryption key. Share it separately with the recipient,
+    /// through an authenticated confidential channel; never place it in bundle metadata.
+    pub fn generate_encryption_key() -> [u8; 32] {
+        use rand::RngCore;
+        let mut key = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut key);
+        key
+    }
+
+    /// Load an encrypted v2 bundle with its separately supplied key.
+    pub fn load_encrypted(path: &Path, key: &[u8; 32]) -> Result<Self> {
+        Self::decrypt(&std::fs::read(path)?, key)
+    }
+
+    /// Load a plaintext JSON bundle. Encrypted bundles require `load_encrypted`.
     pub fn load(path: &Path) -> Result<Self> {
         let data = std::fs::read(path)?;
 
         // Check for encrypted format
-        if data.len() > 4 && &data[..4] == ENCRYPTED_BUNDLE_MAGIC {
-            Self::decrypt(&data)
+        if data.starts_with(ENCRYPTED_BUNDLE_MAGIC) {
+            Err(LicenseError::InvalidLicenseFormat(
+                "Encrypted bundle requires a secret key; use load_encrypted".into(),
+            ))
         } else {
             let json = String::from_utf8(data)
                 .map_err(|e| LicenseError::InvalidLicenseFormat(format!("Invalid UTF-8: {}", e)))?;
@@ -724,48 +743,50 @@ fn get_os_version() -> String {
 // Encryption Functions
 // =============================================================================
 
-/// Encrypt bundle data using hardware-derived key
-fn encrypt_bundle(data: &[u8]) -> Result<Vec<u8>> {
+/// Encrypt bundle data using caller-supplied random secret key
+fn encrypt_bundle(data: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
     use aes_gcm::{
-        aead::{Aead, KeyInit},
+        aead::{Aead, KeyInit, Payload},
         Aes256Gcm, Nonce,
     };
-
-    // Generate encryption key from hardware fingerprint
-    let fingerprint = HardwareFingerprint::generate();
-    let key = derive_bundle_key(&fingerprint.combined_hash);
 
     // Generate random nonce
     let nonce_bytes: [u8; 12] = rand::random();
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     // Encrypt
-    let cipher = Aes256Gcm::new_from_slice(&key)
+    let cipher = Aes256Gcm::new_from_slice(key)
         .map_err(|e| LicenseError::KeyGenerationFailed(e.to_string()))?;
 
     let encrypted = cipher
-        .encrypt(nonce, data)
+        .encrypt(
+            nonce,
+            Payload {
+                msg: data,
+                aad: b"LSBX\x02",
+            },
+        )
         .map_err(|e| LicenseError::KeyGenerationFailed(format!("Encryption failed: {}", e)))?;
 
     // Build output: MAGIC + VERSION + NONCE + ENCRYPTED_DATA
     let mut output = Vec::with_capacity(4 + 1 + 12 + encrypted.len());
     output.extend_from_slice(ENCRYPTED_BUNDLE_MAGIC);
-    output.push(BUNDLE_VERSION);
+    output.push(ENCRYPTED_BUNDLE_VERSION);
     output.extend_from_slice(&nonce_bytes);
     output.extend_from_slice(&encrypted);
 
     Ok(output)
 }
 
-/// Decrypt bundle data using hardware-derived key
-fn decrypt_bundle(data: &[u8]) -> Result<Vec<u8>> {
+/// Decrypt bundle data using caller-supplied random secret key
+fn decrypt_bundle(data: &[u8], key: &[u8; 32]) -> Result<Vec<u8>> {
     use aes_gcm::{
-        aead::{Aead, KeyInit},
+        aead::{Aead, KeyInit, Payload},
         Aes256Gcm, Nonce,
     };
 
     // Check minimum length and magic
-    if data.len() < 17 {
+    if data.len() < 33 {
         return Err(LicenseError::InvalidLicenseFormat(
             "Encrypted bundle too short".into(),
         ));
@@ -778,9 +799,9 @@ fn decrypt_bundle(data: &[u8]) -> Result<Vec<u8>> {
     }
 
     let version = data[4];
-    if version != BUNDLE_VERSION {
+    if version != ENCRYPTED_BUNDLE_VERSION {
         return Err(LicenseError::InvalidLicenseFormat(format!(
-            "Unsupported bundle version: {}",
+            "Unsupported encrypted bundle version: {} (legacy v1 is insecure; regenerate with a secret key)",
             version
         )));
     }
@@ -791,33 +812,25 @@ fn decrypt_bundle(data: &[u8]) -> Result<Vec<u8>> {
 
     let encrypted = &data[17..];
 
-    // Derive key from hardware fingerprint
-    let fingerprint = HardwareFingerprint::generate();
-    let key = derive_bundle_key(&fingerprint.combined_hash);
-
     // Decrypt
-    let cipher = Aes256Gcm::new_from_slice(&key)
+    let cipher = Aes256Gcm::new_from_slice(key)
         .map_err(|e| LicenseError::KeyGenerationFailed(e.to_string()))?;
 
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    cipher.decrypt(nonce, encrypted).map_err(|_| {
-        LicenseError::InvalidLicenseFormat(
-            "Decryption failed - bundle may be from a different machine".into(),
+    cipher
+        .decrypt(
+            nonce,
+            Payload {
+                msg: encrypted,
+                aad: &data[..5],
+            },
         )
-    })
-}
-
-/// Derive encryption key from fingerprint hash
-fn derive_bundle_key(fingerprint_hash: &str) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"licenz-support-bundle-v1:");
-    hasher.update(fingerprint_hash.as_bytes());
-
-    let result = hasher.finalize();
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&result);
-    key
+        .map_err(|_| {
+            LicenseError::InvalidLicenseFormat(
+                "Decryption failed - incorrect key or corrupted bundle".into(),
+            )
+        })
 }
 
 // =============================================================================
@@ -879,6 +892,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn security_bundle_requires_secret_and_rejects_legacy_and_tampering() {
+        let bundle = SupportBundle::generate();
+        let key = SupportBundle::generate_encryption_key();
+        let encrypted = bundle.encrypt(&key).unwrap();
+        assert_eq!(encrypted[4], ENCRYPTED_BUNDLE_VERSION);
+        assert_ne!(encrypted, bundle.encrypt(&key).unwrap());
+        assert!(
+            SupportBundle::decrypt(&encrypted, &SupportBundle::generate_encryption_key()).is_err()
+        );
+        // The public fingerprint key used by v1 no longer decrypts bundles.
+        let mut hash = Sha256::new();
+        hash.update(b"licenz-support-bundle-v1:");
+        hash.update(bundle.hardware.fingerprint_hash.as_bytes());
+        let old_key: [u8; 32] = hash.finalize().into();
+        assert!(SupportBundle::decrypt(&encrypted, &old_key).is_err());
+        let mut changed = encrypted.clone();
+        changed[4] = 1;
+        assert!(SupportBundle::decrypt(&changed, &key)
+            .unwrap_err()
+            .to_string()
+            .contains("legacy v1"));
+        let mut changed = encrypted.clone();
+        *changed.last_mut().unwrap() ^= 1;
+        assert!(SupportBundle::decrypt(&changed, &key).is_err());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bundle");
+        bundle.save_encrypted(&path, &key).unwrap();
+        assert!(SupportBundle::load(&path).is_err());
+        assert_eq!(
+            SupportBundle::load_encrypted(&path, &key)
+                .unwrap()
+                .hardware
+                .fingerprint_hash,
+            bundle.hardware.fingerprint_hash
+        );
+        bundle.save(&path).unwrap();
+        assert!(SupportBundle::load(&path).is_ok());
+        assert!(SupportBundle::load_encrypted(&path, &key).is_err());
+    }
+
+    #[test]
     fn test_generate_basic_bundle() {
         let bundle = SupportBundle::generate();
 
@@ -922,11 +976,12 @@ mod tests {
     #[test]
     fn test_bundle_encryption_round_trip() {
         let bundle = SupportBundle::generate();
-        let encrypted = bundle.encrypt().unwrap();
+        let key = SupportBundle::generate_encryption_key();
+        let encrypted = bundle.encrypt(&key).unwrap();
 
         assert!(encrypted.starts_with(ENCRYPTED_BUNDLE_MAGIC));
 
-        let decrypted = SupportBundle::decrypt(&encrypted).unwrap();
+        let decrypted = SupportBundle::decrypt(&encrypted, &key).unwrap();
         assert_eq!(bundle.version, decrypted.version);
     }
 

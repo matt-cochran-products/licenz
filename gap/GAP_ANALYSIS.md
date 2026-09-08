@@ -127,7 +127,7 @@ pub trait EncryptionAlgorithm {
 - Export hardware fingerprint
 - Export clock state (sanitized)
 - Export recent verification results
-- Encrypted with hardware-derived key
+- Encrypted with a caller-supplied random secret key (v2); see SECURITY.md for migration
 
 ### 5. Enhance Documentation
 **Location**: `README.md`, docs/
