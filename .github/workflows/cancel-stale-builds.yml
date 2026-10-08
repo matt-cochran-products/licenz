@@ -1,0 +1,78 @@
+name: Cancel stale builds
+# Metadata only: no checkout, PR code, secrets, deploys or releases.
+on:
+  push:
+    branches: ['**']
+  pull_request_target:
+    types: [synchronize, closed]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: read
+  actions: write
+concurrency:
+  group: cancel-stale-builds
+  cancel-in-progress: false
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        env:
+          BUILD_WORKFLOWS: '[".github/workflows/ci.yml"]'
+        with:
+          script: |
+            const paths = JSON.parse(process.env.BUILD_WORKFLOWS);
+            const workflows = await github.paginate(github.rest.actions.listRepoWorkflows, {...context.repo, per_page: 100});
+            const allowed = new Set(workflows.filter(w => paths.includes(w.path)).map(w => w.id));
+            const closed = context.eventName === 'pull_request_target' && context.payload.action === 'closed'
+              ? (await github.rest.pulls.get({...context.repo, pull_number: context.payload.pull_request.number})).data : null;
+            const statuses = ['queued', 'in_progress', 'waiting', 'pending', 'requested'];
+            const runs = new Map();
+            for (const status of statuses) {
+              for (const run of await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {...context.repo, status, per_page: 100})) {
+                if (allowed.has(run.workflow_id) && String(run.id) !== String(context.runId)) runs.set(run.id, run);
+              }
+            }
+            async function obsolete(run) {
+              if (run.event === 'pull_request' || run.event === 'pull_request_target') {
+                for (const associated of run.pull_requests || []) {
+                  const pr = (await github.rest.pulls.get({...context.repo, pull_number: associated.number})).data;
+                  if (pr.state === 'closed') return 'pull request closed';
+                  if (pr.head.sha !== run.head_sha) return 'newer pull request commit';
+                  return null;
+                }
+                // GitHub can omit PR associations. Do not infer a fork's head from the base repository.
+                if (!closed || run.head_sha !== closed.head.sha || run.head_branch !== closed.head.ref ||
+                    run.head_repository?.full_name !== closed.head.repo?.full_name) return null;
+              }
+              const repo = run.head_repository?.full_name;
+              if (!repo || !run.head_branch || !run.head_sha) return null;
+              if (closed?.state === 'closed' && repo === closed.head.repo?.full_name &&
+                  run.head_branch === closed.head.ref && run.head_sha === closed.head.sha) return 'pull request closed';
+              const [owner, name] = repo.split('/');
+              try {
+                const head = (await github.rest.git.getRef({owner, repo: name, ref: 'heads/' + run.head_branch})).data.object.sha;
+                return head !== run.head_sha ? 'newer branch commit' : null;
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                // A private fork may be inaccessible. Unknown does not mean stale.
+                core.info('Cannot verify head for run ' + run.id + '; leaving it running.');
+                return null;
+              }
+            }
+            for (const run of runs.values()) {
+              if (!await obsolete(run)) continue;
+              // Recheck live state immediately before cancelling, including late/out-of-order events.
+              const reason = await obsolete(run);
+              if (!reason) continue;
+              try {
+                await github.rest.actions.cancelWorkflowRun({...context.repo, run_id: run.id});
+                core.info('Cancelled build ' + run.id + ': ' + reason);
+              } catch (error) {
+                if (![409, 422].includes(error.status)) throw error;
+                core.info('Build ' + run.id + ' already finished.');
+              }
+            }
+            
