@@ -1,15 +1,27 @@
 name: CI
 
 on:
-  push:
-    branches: [main, dev]
   pull_request:
+    branches:
+    - staging
+    - main
+    types:
+    - opened
+    - synchronize
+    - reopened
+    - ready_for_review
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: build-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -43,6 +55,7 @@ jobs:
 
   # Test baseline (no optional features)
   baseline:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +74,7 @@ jobs:
 
   # Check documentation
   docs:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +92,7 @@ jobs:
 
   # Catch crates.io packaging issues without uploading
   publish-dry-run:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -93,6 +108,7 @@ jobs:
 
   # MSRV check
   msrv:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -113,6 +129,7 @@ jobs:
 
   # Security audit
   security:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -125,3 +142,21 @@ jobs:
 
       - name: Run security audit
         run: cargo audit
+
+  build-gate:
+    name: Build gate
+    needs:
+    - test
+    - baseline
+    - docs
+    - publish-dry-run
+    - msrv
+    - security
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.draft != true) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BUILD_RESULTS: ${{ toJSON(needs) }}
+    steps:
+    - name: Require successful build checks
+      run: "python3 - <<'PY'\nimport json, os, sys\nresults = json.loads(os.environ[\"BUILD_RESULTS\"])\nbad = {name: job[\"result\"] for name, job in results.items() if job[\"result\"] not in (\"success\", \"skipped\")}\nif bad or not any(job[\"result\"] == \"success\" for job in results.values()):\n    print(\"Build gate failed:\", bad or \"all checks skipped\")\n    sys.exit(1)\nprint(\"All applicable build checks passed\")\nPY\n"
