@@ -23,28 +23,22 @@ jobs:
   test:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust: [stable, beta]
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@1.99.0
         with:
-          toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
-        if: matrix.rust == 'stable'
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        if: matrix.rust == 'stable'
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Build
@@ -61,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.0
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -80,7 +74,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.0
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -98,7 +92,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.0
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -118,6 +112,11 @@ jobs:
         with:
           toolchain: "1.89"
 
+      # rust-toolchain.toml pins the development toolchain; override it here so
+      # this job really builds on the MSRV declared in Cargo.toml.
+      - name: Use the MSRV toolchain instead of rust-toolchain.toml
+        run: echo "RUSTUP_TOOLCHAIN=1.89" >> "$GITHUB_ENV"
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
@@ -135,7 +134,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.0
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
