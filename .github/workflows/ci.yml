@@ -1,5 +1,5 @@
+# Build on Blacksmith once for staging; verify retained results on production promotion.
 name: CI
-
 on:
   pull_request:
     branches:
@@ -12,150 +12,70 @@ on:
     - ready_for_review
   workflow_dispatch:
 
-env:
-  CARGO_TERM_COLOR: always
+  workflow_call:
 
+permissions:
+  contents: read
+  actions: read
 concurrency:
-  group: build-ci-${{ github.event.pull_request.number || github.ref }}
+  group: retained-ci.yml-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
 jobs:
-  test:
+  resolve:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
-    runs-on: ubuntu-latest
-
+    runs-on: ${{ vars.CI_RUNNER_MODE == 'blacksmith' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    outputs:
+      build-required: ${{ steps.resolve.outputs.build-required }}
+      run-id: ${{ steps.resolve.outputs.run-id }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@1.99.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          components: rustfmt, clippy
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Build
-        run: cargo build --all-targets --all-features
-
-      - name: Run tests
-        run: cargo test --all-features
-
-  # Test baseline (no optional features)
-  baseline:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@1.99.0
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build baseline
-        run: cargo build -p licenz-core
-
-      - name: Test baseline
-        run: cargo test -p licenz-core
-
-  # Check documentation
-  docs:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@1.99.0
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Check documentation
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps --all-features
-
-  # Catch crates.io packaging issues without uploading
-  publish-dry-run:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@1.99.0
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: cargo publish --dry-run
-        run: cargo publish --dry-run --all-features
-
-  # MSRV check
-  msrv:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust (MSRV)
-        uses: dtolnay/rust-toolchain@master
+          persist-credentials: false
+      - id: resolve
+        uses: matt-cochran-products/infra/.github/actions/retained-build@e05b5b768b746b85671070346e3ca3bec83eb097
         with:
-          toolchain: "1.89"
-
-      # rust-toolchain.toml pins the development toolchain; override it here so
-      # this job really builds on the MSRV declared in Cargo.toml.
-      - name: Use the MSRV toolchain instead of rust-toolchain.toml
-        run: echo "RUSTUP_TOOLCHAIN=1.89" >> "$GITHUB_ENV"
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build (MSRV, default features)
-        run: cargo build -p licenz-core
-
-      - name: Test (MSRV, default features)
-        run: cargo test -p licenz-core
-
-  # Security audit
-  security:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@1.99.0
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Run security audit
-        run: cargo audit
-
+          mode: resolve
+          runner-mode: ${{ vars.CI_RUNNER_MODE || 'github' }}
+          runner-label: ${{ vars.CI_RUNNER_MODE == 'blacksmith' && 'blacksmith-2vcpu-ubuntu-2404' || 'github' }}
+          workflow: ci.yml
+          token: ${{ github.token }}
+  checks:
+    needs: resolve
+    if: needs.resolve.outputs.build-required == 'true'
+    uses: ./.github/workflows/ci-checks.yml
+    secrets: inherit
   build-gate:
     name: Build gate
-    needs:
-    - test
-    - baseline
-    - docs
-    - publish-dry-run
-    - msrv
-    - security
+    needs: [resolve, checks]
     if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.draft != true) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      BUILD_RESULTS: ${{ toJSON(needs) }}
+    runs-on: ${{ vars.CI_RUNNER_MODE == 'blacksmith' && 'blacksmith-2vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     steps:
-    - name: Require successful build checks
-      run: "python3 - <<'PY'\nimport json, os, sys\nresults = json.loads(os.environ[\"BUILD_RESULTS\"])\nbad = {name: job[\"result\"] for name, job in results.items() if job[\"result\"] not in (\"success\", \"skipped\")}\nif bad or not any(job[\"result\"] == \"success\" for job in results.values()):\n    print(\"Build gate failed:\", bad or \"all checks skipped\")\n    sys.exit(1)\nprint(\"All applicable build checks passed\")\nPY\n"
+      - name: Require full checks or verified retained staging results
+        env:
+          RESOLVE_RESULT: ${{ needs.resolve.result }}
+          BUILD_REQUIRED: ${{ needs.resolve.outputs.build-required }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          SOURCE_RUN: ${{ needs.resolve.outputs.run-id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RESOLVE_RESULT" = success
+          if [ "$BUILD_REQUIRED" = true ]; then
+            test "$CHECKS_RESULT" = success
+          else
+            test "$BUILD_REQUIRED" = false
+            test -n "$SOURCE_RUN"
+            test "$CHECKS_RESULT" = skipped
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: needs.resolve.outputs.build-required == 'true'
+        with:
+          persist-credentials: false
+      - uses: matt-cochran-products/infra/.github/actions/retained-build@e05b5b768b746b85671070346e3ca3bec83eb097
+        if: needs.resolve.outputs.build-required == 'true'
+        with:
+          mode: record
+          runner-mode: ${{ vars.CI_RUNNER_MODE || 'github' }}
+          runner-label: ${{ vars.CI_RUNNER_MODE == 'blacksmith' && 'blacksmith-2vcpu-ubuntu-2404' || 'github' }}
+          workflow: ci.yml
+          token: ${{ github.token }}
