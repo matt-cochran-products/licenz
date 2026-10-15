@@ -110,7 +110,10 @@ impl KeyPair {
 
     /// Save the key pair to files
     pub fn save_to_files(&self, private_path: &Path, public_path: &Path) -> Result<()> {
-        std::fs::write(private_path, self.export_private_pem()?)?;
+        write_private_file(
+            private_path,
+            Zeroizing::new(self.export_private_pem()?).as_bytes(),
+        )?;
         std::fs::write(public_path, self.export_public_pem()?)?;
         Ok(())
     }
@@ -279,16 +282,8 @@ impl CryptoKeyPair {
 
     /// Save the key pair to files
     pub fn save_to_files(&self, private_path: &Path, public_path: &Path) -> Result<()> {
-        std::fs::write(private_path, self.private_key_pem.as_str())?;
+        write_private_file(private_path, self.private_key_pem.as_bytes())?;
         std::fs::write(public_path, &self.public_key_pem)?;
-
-        // Set restrictive permissions on Unix
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o600);
-            std::fs::set_permissions(private_path, perms)?;
-        }
 
         Ok(())
     }
@@ -318,6 +313,24 @@ impl CryptoKeyPair {
             algorithm_id: algorithm_ids::RSA_SHA256.to_string(),
         })
     }
+}
+
+/// Replace a sensitive file without exposing new bytes through an existing inode.
+/// The parent directory must be controlled by the caller. On Unix tempfile creates
+/// mode 0600 before any bytes are written. Persist atomically replaces the destination
+/// (including symlinks), so old open descriptors and hard links never see the new key.
+/// Other platforms use the parent directory's access controls.
+pub(crate) fn write_private_file(path: &Path, data: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
+    file.write_all(data)?;
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|e| e.error)?;
+    Ok(())
 }
 
 /// Check that a private key file has restrictive permissions (Unix only)
@@ -355,6 +368,72 @@ fn check_private_key_permissions(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn security_private_replacement_does_not_follow_links_or_expose_old_inode() {
+        use std::io::Read;
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("private.pem");
+        let alias = dir.path().join("alias.pem");
+        std::fs::write(&path, b"old public data").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+        std::fs::hard_link(&path, &alias).unwrap();
+        let mut old = std::fs::File::open(&path).unwrap();
+        write_private_file(&path, b"new private key").unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(std::fs::read(&alias).unwrap(), b"old public data");
+        let mut old_bytes = Vec::new();
+        old.read_to_end(&mut old_bytes).unwrap();
+        assert_eq!(old_bytes, b"old public data");
+        std::fs::remove_file(&path).unwrap();
+        symlink(&alias, &path).unwrap();
+        write_private_file(&path, b"second private key").unwrap();
+        assert!(!std::fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read(&alias).unwrap(), b"old public data");
+        assert_eq!(std::fs::read(&path).unwrap(), b"second private key");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn security_both_exports_stay_private_when_public_export_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let private = dir.path().join("private.pem");
+        let legacy = KeyPair::generate(KeySize::Bits2048).unwrap();
+        assert!(legacy.save_to_files(&private, dir.path()).is_err());
+        assert_eq!(
+            std::fs::metadata(&private).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let modern = CryptoKeyPair::generate(algorithm_ids::ED25519).unwrap();
+        assert!(modern.save_to_files(&private, dir.path()).is_err());
+        assert_eq!(
+            std::fs::metadata(&private).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let public = dir.path().join("public.pem");
+        modern.save_to_files(&private, &public).unwrap();
+        let loaded =
+            CryptoKeyPair::load_from_files(&private, &public, algorithm_ids::ED25519).unwrap();
+        loaded
+            .verify(b"roundtrip", &modern.sign(b"roundtrip").unwrap())
+            .unwrap();
+        legacy.save_to_files(&private, &public).unwrap();
+        assert_eq!(
+            KeyPair::load_from_files(&private, &public)
+                .unwrap()
+                .public_key,
+            legacy.public_key
+        );
+    }
 
     #[test]
     fn test_key_generation() {

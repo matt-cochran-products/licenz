@@ -57,7 +57,7 @@ impl StateManager {
             paths.push(
                 data_dir
                     .join(".licenz")
-                    .join(format!("{}.state", &license_hash)),
+                    .join(format!("{}.state", license_hash)),
             );
         }
 

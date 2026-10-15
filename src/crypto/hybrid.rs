@@ -260,7 +260,7 @@ fn decode_hybrid_key(bytes: &[u8]) -> Result<(String, String)> {
 
     let classical_len = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
 
-    if bytes.len() < 4 + classical_len {
+    if classical_len > bytes.len() - 4 {
         return Err(LicenseError::InvalidKeyFormat(
             "Hybrid key truncated".to_string(),
         ));
@@ -308,7 +308,7 @@ fn decode_hybrid_signature(sig: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
 
     let classical_len = u32::from_le_bytes([sig[0], sig[1], sig[2], sig[3]]) as usize;
 
-    if sig.len() < 4 + classical_len {
+    if classical_len > sig.len() - 4 {
         return Err(LicenseError::VerificationFailed(
             "Hybrid signature truncated".to_string(),
         ));
@@ -333,7 +333,7 @@ pub mod utils {
         let classical_len =
             u32::from_le_bytes([signature[0], signature[1], signature[2], signature[3]]) as usize;
 
-        classical_len == expected_classical_size && signature.len() > 4 + classical_len
+        classical_len == expected_classical_size && classical_len < signature.len() - 4
     }
 
     /// Get the classical signature from a hybrid signature
@@ -365,6 +365,25 @@ pub mod utils {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn security_hybrid_lengths_reject_overflow_and_truncation() {
+        for length in [u32::MAX, u32::MAX - 3, 1, 1024] {
+            let bytes = length.to_le_bytes();
+            assert!(decode_hybrid_key(&bytes).is_err());
+            assert!(decode_hybrid_signature(&bytes).is_err());
+            assert!(!utils::is_hybrid_signature(&bytes, length as usize));
+        }
+        let encoded = encode_hybrid_signature(b"classical", b"postquantum");
+        assert_eq!(
+            decode_hybrid_signature(&encoded).unwrap(),
+            (b"classical".to_vec(), b"postquantum".to_vec())
+        );
+        assert_eq!(
+            decode_hybrid_key(&encode_hybrid_key("classical", "pq")).unwrap(),
+            ("classical".into(), "pq".into())
+        );
+    }
 
     // ==================== HybridRsaMlDsaSigner Tests ====================
 

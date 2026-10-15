@@ -102,6 +102,59 @@ pub const RESPONSE_VERSION: u8 = 1;
 /// Maximum JSON payload size (bytes) inside binary `.req` / `.resp` wrappers.
 pub const MAX_SNEAKERNET_JSON_PAYLOAD: usize = 2 * 1024 * 1024;
 
+/// Maximum complete binary frame (nine-byte header plus JSON).
+pub const MAX_SNEAKERNET_BINARY_SIZE: usize = 9 + MAX_SNEAKERNET_JSON_PAYLOAD;
+/// Maximum normalized Base64 size, including padding.
+pub const MAX_SNEAKERNET_BASE64_SIZE: usize = MAX_SNEAKERNET_BINARY_SIZE.div_ceil(3) * 4;
+/// Maximum text/file input: Base64 plus enough space for CRLF wrapping and markers.
+/// Excess whitespace and trailing content count toward this limit.
+pub const MAX_SNEAKERNET_INPUT_SIZE: usize =
+    MAX_SNEAKERNET_BASE64_SIZE + MAX_SNEAKERNET_BASE64_SIZE.div_ceil(64) * 2 + 256;
+
+fn check_input_size(size: usize, maximum: usize) -> crate::error::Result<()> {
+    if size > maximum {
+        return Err(crate::error::LicenseError::InvalidLicenseFormat(format!(
+            "Activation input exceeds maximum of {maximum} bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn read_bounded(path: &std::path::Path) -> crate::error::Result<Vec<u8>> {
+    use std::io::Read;
+    // Bound the read itself: metadata checks alone race file growth and miss streams.
+    let file = std::fs::File::open(path)?;
+    check_input_size(
+        file.metadata()?.len().try_into().unwrap_or(usize::MAX),
+        MAX_SNEAKERNET_INPUT_SIZE,
+    )?;
+    let mut data = Vec::new();
+    file.take((MAX_SNEAKERNET_INPUT_SIZE + 1) as u64)
+        .read_to_end(&mut data)?;
+    check_input_size(data.len(), MAX_SNEAKERNET_INPUT_SIZE)?;
+    Ok(data)
+}
+
+fn decode_base64_bounded(content: &str) -> crate::error::Result<Vec<u8>> {
+    use base64::Engine;
+    check_input_size(content.len(), MAX_SNEAKERNET_INPUT_SIZE)?;
+    // Count before collecting; both normalized and decoded allocations have fixed bounds.
+    let count = content.chars().filter(|c| !c.is_whitespace()).count();
+    check_input_size(count, MAX_SNEAKERNET_BASE64_SIZE)?;
+    let clean: String = content.chars().filter(|c| !c.is_whitespace()).collect();
+    let mut binary =
+        vec![0; base64::decoded_len_estimate(clean.len()).min(MAX_SNEAKERNET_BINARY_SIZE)];
+    let decoded_len = base64::engine::general_purpose::STANDARD
+        .decode_slice(clean, &mut binary)
+        .map_err(|e| {
+            crate::error::LicenseError::InvalidLicenseFormat(format!(
+                "Invalid or oversized base64: {e}"
+            ))
+        })?;
+    binary.truncate(decoded_len);
+    Ok(binary)
+}
+
 /// Base64 prefix for text-format request files
 pub const REQUEST_TEXT_PREFIX: &str = "-----BEGIN LICENZ ACTIVATION REQUEST-----";
 /// Base64 suffix for text-format request files

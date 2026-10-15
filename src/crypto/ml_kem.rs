@@ -331,7 +331,8 @@ pub fn decrypt_with_kem(data: &[u8], private_key_pem: &str) -> Result<Vec<u8>> {
     // Parse header
     let ct_len = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
 
-    if data.len() < 4 + ct_len + 12 {
+    // ML-KEM-768 ciphertext has a fixed length; reject before offset arithmetic.
+    if ct_len != 1088 || data.len() - 4 < 1088 + 12 + 16 {
         return Err(LicenseError::InvalidLicenseFormat(
             "Encrypted data truncated".to_string(),
         ));
@@ -365,6 +366,17 @@ pub fn decrypt_with_kem(data: &[u8], private_key_pem: &str) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn security_kem_lengths_rejected_before_private_key_parse() {
+        for length in [u32::MAX, u32::MAX - 15, 0, 1087, 1088, 1089] {
+            let bytes = length.to_le_bytes();
+            assert!(matches!(
+                decrypt_with_kem(&bytes, "not a key"),
+                Err(LicenseError::InvalidLicenseFormat(_))
+            ));
+        }
+    }
 
     #[test]
     fn test_ml_kem_768_generate_keypair() {

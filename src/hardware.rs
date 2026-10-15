@@ -149,7 +149,7 @@ fn detect_mac_addresses() -> Vec<String> {
     use sysinfo::Networks;
     let networks = Networks::new_with_refreshed_list();
 
-    for (interface_name, _data) in networks.iter() {
+    for interface_name in networks.keys() {
         // Try to get MAC for each interface
         if let Ok(Some(mac)) = mac_address::mac_address_by_name(interface_name) {
             let mac_str = mac.to_string().to_uppercase();

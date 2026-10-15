@@ -304,6 +304,46 @@ fn generate_nonce() -> String {
 // Response Validation
 // ============================================================================
 
+/// Sign a complete offline unlock response with the issuer's private signing key.
+/// The issuer must authenticate the requester and authorize the requested reset before
+/// calling this function. Nonce and fingerprint must come from the pending challenge.
+/// Output is `[timestamp LE (8)] || [unlock type (1)] || [full signature]`.
+pub fn sign_unlock_response(
+    nonce: &str,
+    fingerprint_hash: &str,
+    unlock_type: UnlockType,
+    private_key_pem: &str,
+    algorithm_id: &str,
+) -> Result<Vec<u8>> {
+    if nonce.len() != 64
+        || fingerprint_hash.len() != 64
+        || !nonce.bytes().all(|c| c.is_ascii_hexdigit())
+        || !fingerprint_hash.bytes().all(|c| c.is_ascii_hexdigit())
+    {
+        return Err(LicenseError::InvalidResponseCode(
+            "Invalid challenge nonce or fingerprint hash".into(),
+        ));
+    }
+    let timestamp = Utc::now().timestamp().to_le_bytes();
+    let kind = match unlock_type {
+        UnlockType::ClockReset => 1,
+        UnlockType::ActivationReset => 2,
+        UnlockType::FullReset => 3,
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(nonce.as_bytes());
+    hasher.update(timestamp);
+    hasher.update([kind]);
+    hasher.update(fingerprint_hash.as_bytes());
+    let signature = CryptoRegistry::get_signature_algorithm(algorithm_id)?
+        .sign(&hasher.finalize(), private_key_pem)?;
+    let mut response = Vec::with_capacity(9 + signature.len());
+    response.extend_from_slice(&timestamp);
+    response.push(kind);
+    response.extend_from_slice(&signature);
+    Ok(response)
+}
+
 /// Validate a response code and apply the unlock if valid
 ///
 /// The response is raw bytes: `[timestamp(8)] || [unlock_type(1)] || [signature(variable)]`.

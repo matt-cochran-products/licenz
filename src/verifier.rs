@@ -124,7 +124,7 @@ impl LicenseVerifier {
         // Read length
         let len = u32::from_le_bytes([data[5], data[6], data[7], data[8]]) as usize;
 
-        if data.len() < 9 + len {
+        if len > data.len() - 9 {
             return Err(LicenseError::InvalidLicenseFormat(
                 "Binary license data truncated".into(),
             ));
@@ -506,7 +506,7 @@ impl CryptoVerifier {
         // Read length
         let len = u32::from_le_bytes([data[5], data[6], data[7], data[8]]) as usize;
 
-        if data.len() < 9 + len {
+        if len > data.len() - 9 {
             return Err(LicenseError::InvalidLicenseFormat(
                 "Binary license data truncated".into(),
             ));
@@ -665,6 +665,20 @@ impl CryptoVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn security_maximum_binary_lengths_return_errors_for_both_verifiers() {
+        let keys = create_test_keypair();
+        let legacy = LicenseVerifier::new(keys.public_key);
+        let modern = CryptoVerifier::new(std::collections::HashMap::new());
+        for length in [u32::MAX, u32::MAX - 8, 1, 1024] {
+            let mut bytes = b"FLIC\x01".to_vec();
+            bytes.extend_from_slice(&length.to_le_bytes());
+            assert!(legacy.parse_license(&bytes).is_err());
+            assert!(modern.parse_license(&bytes).is_err());
+        }
+    }
+
     use crate::generator::LicenseGenerator;
     use crate::keys::{KeyPair, KeySize};
     use crate::license::LicenseData;

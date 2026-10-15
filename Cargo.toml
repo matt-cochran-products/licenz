@@ -1,6 +1,6 @@
 [package]
 name = "licenz-core"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Matthew Cochran <matthew@cochranweb.com>"]
 edition = "2021"
 rust-version = "1.89"
@@ -45,6 +45,7 @@ argon2 = "0.5"
 ed25519-dalek = { version = "2", features = ["rand_core", "pkcs8", "pem"] }
 hmac = "0.12"
 zeroize = { version = "1", features = ["derive"] }
+tempfile = "3"
 
 # Optional hardware detection
 sysinfo = { version = "0.38", optional = true }
@@ -62,6 +63,3 @@ url = { version = "2", optional = true }
 ml-dsa = { version = "0.1", optional = true }
 ml-kem = { version = "0.3", optional = true, features = ["getrandom"] }
 getrandom = { version = "0.4", optional = true, features = ["sys_rng"] }
-
-[dev-dependencies]
-tempfile = "3"

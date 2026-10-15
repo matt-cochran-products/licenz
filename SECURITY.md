@@ -41,6 +41,38 @@ Default binding uses **MAC addresses, disk identifiers, hostname, machine id** e
 
 - [`EncryptedKeyStore`](src/encrypted_store.rs): **version byte 1**, Argon2id KDF, AES-256-GCM. Other versions are rejected.
 
+### Private-key file export and restoration
+
+- Both key-pair exporters and encrypted-backup restoration create a fresh private file before writing, then atomically replace the destination. On Unix the file is mode **0600 from creation**. Existing symlinks are replaced, not followed; existing hard links and open descriptors retain the old contents. Public-key export failure does not expose the private key.
+- Callers must control the destination directory. On non-Unix platforms, configure a private directory ACL; file mode bits are not an ACL substitute. Atomic replacement requires write access to the directory even when replacing an existing file.
+
+### Support-bundle encryption migration (0.4.0)
+
+Encrypted support bundles now require a **random 32-byte secret key** supplied by the caller. Hardware fingerprints are public identifiers and must never be used as encryption keys. `SupportBundle::generate_encryption_key()` uses the operating-system RNG; generate a fresh key for each support exchange and protect it with the application's secret storage.
+
+```rust,no_run
+use licenz_core::support_bundle::SupportBundle;
+use std::path::Path;
+use zeroize::Zeroizing;
+
+let key = Zeroizing::new(SupportBundle::generate_encryption_key());
+let bundle = SupportBundle::generate();
+bundle.save_encrypted(Path::new("support.lsbx"), &key)?;
+// Deliver the file to support. Share `key` separately over an authenticated,
+// confidential channel, never in the bundle, metadata, logs or public tickets.
+// The recipient retrieves that same secret from their protected channel:
+let received = SupportBundle::load_encrypted(Path::new("support.lsbx"), &key)?;
+# Ok::<(), licenz_core::error::LicenseError>(())
+```
+
+The binary envelope is `LSBX || 0x02 || nonce[12] || AES-256-GCM(ciphertext || tag[16])`. The first five bytes are authenticated additional data. The decrypted JSON retains its independent version **1**. `encrypt`, `decrypt`, and `save_encrypted` now require the key argument; `load` accepts plaintext JSON only and directs encrypted callers to `load_encrypted(path, key)`. Importing ciphertext never silently falls back to plaintext.
+
+Legacy encrypted envelope **v1 is rejected**, including on the originating machine. Its hardware-derived encryption did not provide confidentiality. Regenerate diagnostic bundles using v2; updating software cannot retroactively protect copies already shared. There is no automatic legacy decrypt or key derivation fallback.
+
+### Offline activation input limits
+
+Request and response imports bound reads before allocating complete files. Text input has an outer budget covering Base64, CRLF line wrapping and markers; whitespace counts toward that budget. Normalized Base64 and decoded bytes have separate bounds. Binary frames accept at most two MiB of JSON and reject trailing bytes. Exports reject JSON beyond the same payload budget so successful exports remain importable. Existing valid binary and wrapped/plain Base64 formats remain supported.
+
 ### Online revocation and sync
 
 - [`OnlineCheckConfig`](src/online_check/mod.rs): `server_url` **must** start with `https://`; empty API keys rejected.
@@ -55,6 +87,8 @@ Default binding uses **MAC addresses, disk identifiers, hostname, machine id** e
 - [`generate_challenge_from_state`](src/unlock.rs) persists an HMAC-protected `PendingChallenge` (nonce, timestamp, unlock type, fingerprint hash) as a one-time token.
 - [`validate_response_code`](src/unlock.rs) loads and **deletes** the pending challenge (replay prevention), reconstructs the signed message, and verifies the signature using `CryptoRegistry` (RSA-SHA256 or Ed25519).
 - Response format: `[timestamp(8)] || [unlock_type(1)] || [signature(variable)]`.
+
+The issuer can use `unlock::sign_unlock_response` to produce the full signed payload. The issuer must authenticate and authorize the requester before signing; the helper receives the nonce and fingerprint from the client's persisted challenge. Legacy compact hash codes are not signatures and are not accepted. CLI transport prefixes the hexadecimal encoding of the complete payload with `hex:`; the verifying public key and algorithm are independently configured, never accepted from that payload.
 
 ### Feature flags
 
