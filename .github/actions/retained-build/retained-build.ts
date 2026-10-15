@@ -12,6 +12,23 @@ export interface Evidence {
   head_sha: string;
   built_sha: string;
   tree: string;
+  // Schema 2: the triggering PR as delivered in the build's own event payload.
+  // It is part of the immutable artifact, so it survives the PR closing.
+  pull_request?: PullRequestProvenance | null;
+}
+export interface PullRequestProvenance {
+  number: number;
+  base_ref: string;
+  base_repo_id: number;
+  head_ref: string;
+  head_repo_id: number;
+  head_sha: string;
+}
+/** A pull request as returned by the REST pulls endpoints. */
+export interface PullRequest {
+  number: number;
+  base: { ref: string; repo: { id: number; full_name: string } };
+  head: { ref: string; sha: string; repo: { id: number; full_name: string } | null };
 }
 export interface Run {
   id: number;
@@ -33,15 +50,57 @@ export function validate(evidence: Evidence, run: Run, repository: string, workf
   if (run.status !== 'completed' || run.conclusion !== 'success'
       || run.head_repository?.full_name !== repository || run.path !== `.github/workflows/${workflow}`
       || !['pull_request', 'workflow_dispatch', 'push'].includes(run.event)) throw new Error('Untrusted build run');
-  if (run.event === 'pull_request') {
-    if (!run.pull_requests.some(pr => pr.base.ref === 'staging' && pr.head.sha === run.head_sha
-      && pr.base.repo.id === pr.head.repo.id)) throw new Error('Build did not validate a same-repository staging PR');
-  } else if (run.head_branch !== 'staging') throw new Error('Build did not run on staging');
-  if (evidence.schema !== 1 || evidence.repository !== repository || evidence.workflow !== workflow
+  if (run.event !== 'pull_request' && run.head_branch !== 'staging') throw new Error('Build did not run on staging');
+  if (![1, 2].includes(evidence.schema) || evidence.repository !== repository || evidence.workflow !== workflow
       || evidence.run_id !== run.id || evidence.run_attempt !== run.run_attempt || evidence.head_sha !== run.head_sha
       || !sha.test(evidence.built_sha) || !sha.test(evidence.tree) || evidence.tree !== tree) {
     throw new Error('Retained build does not match this repository, run attempt and complete source tree');
   }
+  // Schema 2 must carry PR provenance exactly when the build ran for a PR.
+  if (evidence.schema === 2 && (run.event === 'pull_request') !== (evidence.pull_request != null)) {
+    throw new Error('Retained build provenance does not match its triggering event');
+  }
+}
+
+/**
+ * Proves a pull_request build validated a same-repository PR into staging.
+ *
+ * `run.pull_requests` is emptied by GitHub once the PR closes, so it cannot be
+ * the source of truth. The PR is instead checked live through the pulls API:
+ * schema 2 evidence names the PR (recorded from the build's event payload) and
+ * both the recorded and the live PR must target staging; schema 1 evidence has
+ * no PR number, so the caller passes the repository's staging PRs for the
+ * run's head branch. Either way the PR must still have head.sha == run.head_sha
+ * and head.ref == run.head_branch, with base and head in this repository.
+ * `commits/{sha}/pulls` is deliberately not used: for a commit already on the
+ * default branch it returns only the PR that introduced it, never the
+ * promotion PR into staging.
+ */
+export function verifyStagingPr(evidence: Evidence, run: Run, repository: string, prs: PullRequest[]): PullRequest {
+  if (run.event !== 'pull_request') throw new Error('Not a pull_request build');
+  const recorded = evidence.pull_request;
+  if ((evidence.schema >= 2 || recorded) && (!recorded || recorded.base_ref !== 'staging' || recorded.head_sha !== run.head_sha
+      || recorded.head_ref !== run.head_branch || recorded.base_repo_id !== recorded.head_repo_id)) {
+    throw new Error('Retained build provenance does not name a same-repository staging PR for this run');
+  }
+  const match = prs.find(pr => pr.base.ref === 'staging' && pr.head.sha === run.head_sha && pr.head.ref === run.head_branch
+    && pr.base.repo.full_name === repository && pr.head.repo?.full_name === repository && pr.base.repo.id === pr.head.repo.id
+    && (!recorded || (pr.number === recorded.number && pr.base.repo.id === recorded.base_repo_id)));
+  if (!match) throw new Error('Build did not validate a same-repository staging PR');
+  return match;
+}
+
+function stagingPrCandidates(evidence: Evidence, run: Run, repository: string): PullRequest[] {
+  if (evidence.pull_request) return [api(`repos/${repository}/pulls/${evidence.pull_request.number}`)];
+  const owner = repository.split('/')[0];
+  const head = encodeURIComponent(`${owner}:${run.head_branch}`);
+  const prs: PullRequest[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const batch: PullRequest[] = api(`repos/${repository}/pulls?state=all&base=staging&head=${head}&sort=updated&direction=desc&per_page=100&page=${page}`);
+    prs.push(...batch);
+    if (batch.some(pr => pr.head.sha === run.head_sha) || batch.length < 100) break;
+  }
+  return prs;
 }
 
 export function mustReuse(eventName: string, event: any, ref: string, repository: string): boolean {
@@ -68,8 +127,11 @@ export function main(): void {
   const runId = Number(env.GITHUB_RUN_ID);
   if (env.RETAINED_BUILD_MODE === 'record') {
     const run: Run = api(`repos/${repository}/actions/runs/${runId}`);
-    const evidence: Evidence = { schema: 1, repository, workflow, run_id: runId,
-      run_attempt: Number(env.GITHUB_RUN_ATTEMPT), head_sha: run.head_sha, built_sha: builtSha, tree };
+    const pr = env.GITHUB_EVENT_NAME === 'pull_request' ? event.pull_request : null;
+    const evidence: Evidence = { schema: 2, repository, workflow, run_id: runId,
+      run_attempt: Number(env.GITHUB_RUN_ATTEMPT), head_sha: run.head_sha, built_sha: builtSha, tree,
+      pull_request: pr && { number: pr.number, base_ref: pr.base.ref, base_repo_id: pr.base.repo.id,
+        head_ref: pr.head.ref, head_repo_id: pr.head.repo.id, head_sha: pr.head.sha } };
     const dir = join(env.RUNNER_TEMP!, 'retained-build');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'build-result.json'), JSON.stringify(evidence, null, 2) + '\n');
@@ -88,8 +150,11 @@ export function main(): void {
   for (let page = 1; page <= 10; page++) {
     const runs: Run[] = api(`repos/${repository}/actions/workflows/${workflow}/runs?status=success&per_page=100&page=${page}`).workflow_runs;
     for (const run of runs) {
+      // A closed PR's run lists no pull_requests; provenance is verified below.
       if (run.id === runId || run.head_repository?.full_name !== repository
-          || (run.event === 'pull_request' ? !run.pull_requests.some(pr => pr.base.ref === 'staging') : run.head_branch !== 'staging')) continue;
+          || (run.event === 'pull_request'
+            ? run.pull_requests.length > 0 && !run.pull_requests.some(pr => pr.base.ref === 'staging')
+            : run.head_branch !== 'staging')) continue;
       const artifacts = api(`repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`).artifacts;
       const name = `retained-build-${workflow}-${run.run_attempt}`;
       if (!artifacts.some((a: any) => a.name === name && !a.expired)) continue;
@@ -97,7 +162,10 @@ export function main(): void {
       try {
         text(['gh', 'run', 'download', String(run.id), '--repo', repository, '--name', name, '--dir', dir]);
         const evidence: Evidence = JSON.parse(readFileSync(join(dir, 'build-result.json'), 'utf8'));
-        try { validate(evidence, run, repository, workflow, tree); } catch { continue; }
+        try {
+          validate(evidence, run, repository, workflow, tree);
+          if (run.event === 'pull_request') verifyStagingPr(evidence, run, repository, stagingPrCandidates(evidence, run, repository));
+        } catch { continue; }
         const commit = api(`repos/${repository}/git/commits/${evidence.built_sha}`);
         if (commit.tree.sha !== tree) throw new Error('Build commit tree does not match retained evidence');
         output('build-required', 'false');

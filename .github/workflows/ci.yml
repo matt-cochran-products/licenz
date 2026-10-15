@@ -1,4 +1,4 @@
-# Public distribution of infra retained-build@e05b5b768b746b85671070346e3ca3bec83eb097;
+# Public distribution of infra retained-build@291baf27677c8aa76f52cf6bcf8452771dc679f2;
 # validator source: infra@9142d3cc069005f788753b3a5d52a1d31ca552d3. Do not fork runtime logic.
 # Build on Blacksmith once for staging; verify retained results on production promotion.
 name: CI
