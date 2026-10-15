@@ -1,4 +1,4 @@
-# Public distribution of infra retained-build@291baf27677c8aa76f52cf6bcf8452771dc679f2;
+# Public distribution of infra retained-build@943374bc22ee821be2cb99bbda7f7f895ce44746;
 # validator source: infra@9142d3cc069005f788753b3a5d52a1d31ca552d3. Do not fork runtime logic.
 # Build on Blacksmith once for staging; verify retained results on production promotion.
 name: CI
@@ -19,6 +19,7 @@ on:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
 concurrency:
   group: retained-ci.yml-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true

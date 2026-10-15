@@ -8,7 +8,7 @@ inputs:
     description: Calling workflow filename, for example ci.yml
     required: true
   token:
-    description: Read-only token with contents and actions access
+    description: Read-only token with contents, actions and pull-requests read access (resolve verifies staging PR provenance)
     required: true
   runner-mode:
     description: Existing CI_RUNNER_MODE resolved by the calling workflow

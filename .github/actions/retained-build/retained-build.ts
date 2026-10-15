@@ -162,10 +162,16 @@ export function main(): void {
       try {
         text(['gh', 'run', 'download', String(run.id), '--repo', repository, '--name', name, '--dir', dir]);
         const evidence: Evidence = JSON.parse(readFileSync(join(dir, 'build-result.json'), 'utf8'));
-        try {
-          validate(evidence, run, repository, workflow, tree);
-          if (run.event === 'pull_request') verifyStagingPr(evidence, run, repository, stagingPrCandidates(evidence, run, repository));
-        } catch { continue; }
+        try { validate(evidence, run, repository, workflow, tree); } catch { continue; }
+        if (run.event === 'pull_request') {
+          // An unreadable pulls API must fail loudly, not silently look like "no build".
+          let prs: PullRequest[];
+          try { prs = stagingPrCandidates(evidence, run, repository); } catch (error) {
+            throw new Error(`Cannot read pull requests to verify staging build ${run.id}; the resolve job needs `
+              + `permissions: pull-requests: read (${(error as Error).message})`);
+          }
+          try { verifyStagingPr(evidence, run, repository, prs); } catch { continue; }
+        }
         const commit = api(`repos/${repository}/git/commits/${evidence.built_sha}`);
         if (commit.tree.sha !== tree) throw new Error('Build commit tree does not match retained evidence');
         output('build-required', 'false');
