@@ -17,6 +17,7 @@ on:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
 concurrency:
   group: retained-ci.yml-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -32,7 +33,7 @@ jobs:
         with:
           persist-credentials: false
       - id: resolve
-        uses: matt-cochran-products/infra/.github/actions/retained-build@e05b5b768b746b85671070346e3ca3bec83eb097
+        uses: matt-cochran-products/infra/.github/actions/retained-build@6bd8a1c7192d9a9ff2a8065f8dd113291243202c
         with:
           mode: resolve
           runner-mode: ${{ vars.CI_RUNNER_MODE || 'github' }}
@@ -71,7 +72,7 @@ jobs:
         if: needs.resolve.outputs.build-required == 'true'
         with:
           persist-credentials: false
-      - uses: matt-cochran-products/infra/.github/actions/retained-build@e05b5b768b746b85671070346e3ca3bec83eb097
+      - uses: matt-cochran-products/infra/.github/actions/retained-build@6bd8a1c7192d9a9ff2a8065f8dd113291243202c
         if: needs.resolve.outputs.build-required == 'true'
         with:
           mode: record
