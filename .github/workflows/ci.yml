@@ -1,3 +1,4 @@
+# Generated public distribution of infra retained-build@6bd8a1c7192d9a9ff2a8065f8dd113291243202c.
 # Build on Blacksmith once for staging; verify retained results on production promotion.
 name: CI
 on:
@@ -33,7 +34,7 @@ jobs:
         with:
           persist-credentials: false
       - id: resolve
-        uses: matt-cochran-products/infra/.github/actions/retained-build@6bd8a1c7192d9a9ff2a8065f8dd113291243202c
+        uses: ./.github/actions/retained-build
         with:
           mode: resolve
           runner-mode: ${{ vars.CI_RUNNER_MODE || 'github' }}
@@ -72,7 +73,7 @@ jobs:
         if: needs.resolve.outputs.build-required == 'true'
         with:
           persist-credentials: false
-      - uses: matt-cochran-products/infra/.github/actions/retained-build@6bd8a1c7192d9a9ff2a8065f8dd113291243202c
+      - uses: ./.github/actions/retained-build
         if: needs.resolve.outputs.build-required == 'true'
         with:
           mode: record
