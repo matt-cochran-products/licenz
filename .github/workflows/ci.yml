@@ -18,6 +18,7 @@ on:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
 concurrency:
   group: retained-ci.yml-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
