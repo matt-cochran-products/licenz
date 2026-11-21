@@ -14,6 +14,7 @@ jobs:
   test:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
+    environment: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && 'rust-cache-writer' || 'rust-cache-reader' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +30,17 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Configure private R2 Rust cache
+        id: rust-r2-cache
+        uses: matt-cochran-products/infra/.github/actions/rust-r2-cache@dd131cdc7925296155cdaee8d7c1147c86ba1134
+        with:
+          enabled: ${{ vars.RUST_SCCACHE_R2_ENABLED || 'false' }}
+          bucket: ${{ vars.RUST_SCCACHE_R2_BUCKET }}
+          endpoint: ${{ vars.RUST_SCCACHE_R2_ENDPOINT }}
+          read-access-key-id: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.RUST_SCCACHE_R2_READ_ACCESS_KEY_ID || '' }}
+          read-secret-access-key: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.RUST_SCCACHE_R2_READ_SECRET_ACCESS_KEY || '' }}
+          write-access-key-id: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && secrets.RUST_SCCACHE_R2_WRITE_ACCESS_KEY_ID || '' }}
+          write-secret-access-key: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && secrets.RUST_SCCACHE_R2_WRITE_SECRET_ACCESS_KEY || '' }}
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
@@ -37,11 +49,27 @@ jobs:
 
       - name: Run tests
         run: cargo test --all-features
+      - name: Record R2 compilation cache statistics
+        if: ${{ always() && steps.rust-r2-cache.outputs.active == 'true' }}
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          { printf '\n### R2 compilation cache\n\n```text\n'; sccache --show-stats; printf '```\n'; } >> "$GITHUB_STEP_SUMMARY"
+          sccache --show-stats --stats-format json > "$RUNNER_TEMP/rust-r2-cache-stats.json"
+      - name: Retain R2 compilation cache statistics
+        if: ${{ always() && steps.rust-r2-cache.outputs.active == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rust-r2-cache-${{ github.job }}-${{ strategy.job-index || 0 }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rust-r2-cache-stats.json
+          retention-days: 7
+          if-no-files-found: warn
 
   # Test baseline (no optional features)
   baseline:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
+    environment: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && 'rust-cache-writer' || 'rust-cache-reader' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,16 +79,43 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Configure private R2 Rust cache
+        id: rust-r2-cache
+        uses: matt-cochran-products/infra/.github/actions/rust-r2-cache@dd131cdc7925296155cdaee8d7c1147c86ba1134
+        with:
+          enabled: ${{ vars.RUST_SCCACHE_R2_ENABLED || 'false' }}
+          bucket: ${{ vars.RUST_SCCACHE_R2_BUCKET }}
+          endpoint: ${{ vars.RUST_SCCACHE_R2_ENDPOINT }}
+          read-access-key-id: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.RUST_SCCACHE_R2_READ_ACCESS_KEY_ID || '' }}
+          read-secret-access-key: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.RUST_SCCACHE_R2_READ_SECRET_ACCESS_KEY || '' }}
+          write-access-key-id: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && secrets.RUST_SCCACHE_R2_WRITE_ACCESS_KEY_ID || '' }}
+          write-secret-access-key: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && secrets.RUST_SCCACHE_R2_WRITE_SECRET_ACCESS_KEY || '' }}
       - name: Build baseline
         run: cargo build -p licenz-core
 
       - name: Test baseline
         run: cargo test -p licenz-core
+      - name: Record R2 compilation cache statistics
+        if: ${{ always() && steps.rust-r2-cache.outputs.active == 'true' }}
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          { printf '\n### R2 compilation cache\n\n```text\n'; sccache --show-stats; printf '```\n'; } >> "$GITHUB_STEP_SUMMARY"
+          sccache --show-stats --stats-format json > "$RUNNER_TEMP/rust-r2-cache-stats.json"
+      - name: Retain R2 compilation cache statistics
+        if: ${{ always() && steps.rust-r2-cache.outputs.active == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rust-r2-cache-${{ github.job }}-${{ strategy.job-index || 0 }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rust-r2-cache-stats.json
+          retention-days: 7
+          if-no-files-found: warn
 
   # Check documentation
   docs:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
+    environment: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && 'rust-cache-writer' || 'rust-cache-reader' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -70,10 +125,36 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Configure private R2 Rust cache
+        id: rust-r2-cache
+        uses: matt-cochran-products/infra/.github/actions/rust-r2-cache@dd131cdc7925296155cdaee8d7c1147c86ba1134
+        with:
+          enabled: ${{ vars.RUST_SCCACHE_R2_ENABLED || 'false' }}
+          bucket: ${{ vars.RUST_SCCACHE_R2_BUCKET }}
+          endpoint: ${{ vars.RUST_SCCACHE_R2_ENDPOINT }}
+          read-access-key-id: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.RUST_SCCACHE_R2_READ_ACCESS_KEY_ID || '' }}
+          read-secret-access-key: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.RUST_SCCACHE_R2_READ_SECRET_ACCESS_KEY || '' }}
+          write-access-key-id: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && secrets.RUST_SCCACHE_R2_WRITE_ACCESS_KEY_ID || '' }}
+          write-secret-access-key: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && secrets.RUST_SCCACHE_R2_WRITE_SECRET_ACCESS_KEY || '' }}
       - name: Check documentation
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --all-features
+      - name: Record R2 compilation cache statistics
+        if: ${{ always() && steps.rust-r2-cache.outputs.active == 'true' }}
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          { printf '\n### R2 compilation cache\n\n```text\n'; sccache --show-stats; printf '```\n'; } >> "$GITHUB_STEP_SUMMARY"
+          sccache --show-stats --stats-format json > "$RUNNER_TEMP/rust-r2-cache-stats.json"
+      - name: Retain R2 compilation cache statistics
+        if: ${{ always() && steps.rust-r2-cache.outputs.active == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rust-r2-cache-${{ github.job }}-${{ strategy.job-index || 0 }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rust-r2-cache-stats.json
+          retention-days: 7
+          if-no-files-found: warn
 
   # Catch crates.io packaging issues without uploading
   publish-dry-run:
@@ -95,6 +176,7 @@ jobs:
   msrv:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
+    environment: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && 'rust-cache-writer' || 'rust-cache-reader' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -111,11 +193,37 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Configure private R2 Rust cache
+        id: rust-r2-cache
+        uses: matt-cochran-products/infra/.github/actions/rust-r2-cache@dd131cdc7925296155cdaee8d7c1147c86ba1134
+        with:
+          enabled: ${{ vars.RUST_SCCACHE_R2_ENABLED || 'false' }}
+          bucket: ${{ vars.RUST_SCCACHE_R2_BUCKET }}
+          endpoint: ${{ vars.RUST_SCCACHE_R2_ENDPOINT }}
+          read-access-key-id: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.RUST_SCCACHE_R2_READ_ACCESS_KEY_ID || '' }}
+          read-secret-access-key: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.RUST_SCCACHE_R2_READ_SECRET_ACCESS_KEY || '' }}
+          write-access-key-id: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && secrets.RUST_SCCACHE_R2_WRITE_ACCESS_KEY_ID || '' }}
+          write-secret-access-key: ${{ vars.RUST_SCCACHE_R2_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && github.ref_protected && secrets.RUST_SCCACHE_R2_WRITE_SECRET_ACCESS_KEY || '' }}
       - name: Build (MSRV, default features)
         run: cargo build -p licenz-core
 
       - name: Test (MSRV, default features)
         run: cargo test -p licenz-core
+      - name: Record R2 compilation cache statistics
+        if: ${{ always() && steps.rust-r2-cache.outputs.active == 'true' }}
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          { printf '\n### R2 compilation cache\n\n```text\n'; sccache --show-stats; printf '```\n'; } >> "$GITHUB_STEP_SUMMARY"
+          sccache --show-stats --stats-format json > "$RUNNER_TEMP/rust-r2-cache-stats.json"
+      - name: Retain R2 compilation cache statistics
+        if: ${{ always() && steps.rust-r2-cache.outputs.active == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: rust-r2-cache-${{ github.job }}-${{ strategy.job-index || 0 }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rust-r2-cache-stats.json
+          retention-days: 7
+          if-no-files-found: warn
 
   # Security audit
   security:
